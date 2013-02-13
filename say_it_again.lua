@@ -17,10 +17,11 @@ How To Install And Use:
  1. Copy say_it_again.lua (this file) to %ProgramFiles%\VideoLAN\VLC\lua\extensions\ (or /usr/share/vlc/lua/extensions/ for Linux users)
  2. Download a dictionary in Stardict format (eg google "lingvo x3 stardict torrent"; keep in mind that it is kind of illegal, though)
  3. Extract dictionaries: there should be three files (.ifo, .idx and .dict (not .dz)) in one directory
- 4. Edit say_it_again.lua: specify *dict_path* and *words_file_path*
- 5. Restart VLC, go to "View" and select "Say It Again" extension there
- 6. ????
- 7. PROFIT!
+ 4. Download WordNet databases [http://wordnetcode.princeton.edu/wn3.1.dict.tar.gz] and extract them somewhere
+ 5. Edit say_it_again.lua: specify *dict_dir*, *wordnet_dir* and *words_file_path*
+ 6. Restart VLC, go to "View" and select "Say It Again" extension there
+ 7. ????
+ 8. PROFIT!
 
 License -- MIT:
  Copyright (c) 2013 Vasily Goldobin
@@ -34,12 +35,14 @@ License -- MIT:
  IN THE SOFTWARE.
 
 Thanks
- to lubozle (Subtitler, Previous frame) and hector (Dico) and others, whose extensions helped to create this one.
+ to lubozle (Subtitler, Previous frame) and hector (Dico) and others, whose extensions helped to create this one;
+ to Princeton University for their WordNet;
 
 Abbreviations used in code:
  def     definition of a word (= translation)
  dlg     dialog (window)
  idx     index
+ pos     part of speech (noun, verb etc)
  osd     on-screen display (text on screen)
  res     result
  str     string
@@ -51,8 +54,11 @@ Abbreviations used in code:
 --[[  Settings  ]]--
 local sia_settings =
 {
-    dict_path = "C:\\dict\\LingvoEnRu", -- path to stardict files (without extension!) or nil to not to use dictionary
-    words_file_path = "C:\\users\\vasily\\Desktop\\sia_words.txt",
+    charset = "iso-8859-1",          -- works for english and french subtitles (try also "Windows-1252")
+    dict_dir = "C:/dict",            -- where Stardict dictionaries are located
+    wordnet_dir = "C:/dict/wordnet", -- where WordNet files are located
+    chosen_dict = "C:/dict/OxfordAmericanDictionaryEnEn", -- Stardict dictionary used by default (there should be 3 files with this name but different extensions)
+    words_file_path = nil, -- if 'nil' then "Desktop/sia_words.txt" will be used
     always_show_subtitles = false,
     osd_position = "top",
     help_duration = 6, -- sec; change to nil to disable osd help
@@ -66,7 +72,7 @@ local sia_settings =
 
 
 --[[  Global variables (no midifications beyond this point) ]]--
-local g_version = "0.0.1"
+local g_version = "0.0.2"
 local g_ignored_words = {"and", "the", "that", "not", "with", "you"}
 
 local g_osd_enabled = false
@@ -74,6 +80,9 @@ local g_osd_channel = nil
 local g_dlg = {}
 local g_paused_by_btn_again = false
 local g_words_file = nil
+local g_callbacks_set = false
+local g_current_dialog = nil
+local g_found_dicts = {}
 
 local g_subtitles = {
     path = nil,
@@ -90,9 +99,57 @@ local g_subtitles = {
 
 local g_dict = {
     loaded = false,
+    name = nil,
     idx_table = {},
     dict_file = nil,
     format = nil
+}
+
+local g_dict_fmt = {
+    {pattern = "Lingvo", tr = "<tr>(.-)</tr>", def = "<dtrn>(.-)</dtrn>", not_def = nil},
+    {pattern = "Universal", tr = "<tr>(.-)</tr>", def = "<dtrn>(.-)</dtrn>", not_def = nil},
+    {pattern = "OxfordAmericanDictionary", tr = "<tr>(.-)</tr>", def = "<dtrn>(.-)</dtrn>", not_def = {"<ex>"}},
+    {pattern = "Merriam%-Webster", tr = "<co>\\(.-)\\</co>", def = "<dtrn> <b>:</b> (.-)</dtrn>", not_def = nil},
+    {pattern = "Macmillan", tr = "<c c=\"teal\">%[(.-)%]</c>", def = "<blockquote>(.-)</blockquote>", not_def = {"<ex>", "c=\"darkslategray\""}},
+    {pattern = "Longman", tr = " /(.-)/ ", def = "<blockquote>(.-)</blockquote>", not_def = {"<ex>", "Word Family:", "Origin: ", "c=\"crimson\"", "c=\"chocolate\"", "c=\"darkgoldenrod\"", "c=\"gray\""}},
+    {pattern = ".*", tr = nil, def = "(.-)\n", not_def = nil}, -- for unknown dictionaries
+}
+
+local g_wordnet = {
+    loaded = false,
+    poss = {},
+
+    rules = {
+        noun = {
+            {"s", ""},
+            {"'s", ""},
+            {"'", ""},
+            {"ses", "s"},
+            {"xes", "x"},
+            {"zes" , "z"},
+            {"ches" , "ch"},
+            {"shes" , "sh"},
+            {"men" , "man"},
+            {"ies" , "y"}
+        },
+        verb = {
+            {"s", ""},
+            {"ies", "y"},
+            {"es", "e"},
+            {"es", ""},
+            {"ed", "e"},
+            {"ed", ""},
+            {"ing", "e"},
+            {"ing", ""}
+        },
+        adj = {
+            {"er", ""},
+            {"er", "e"},
+            {"est", ""},
+            {"est", "e"}
+        },
+        adv = {}
+    }
 }
 
 
@@ -110,7 +167,7 @@ function descriptor()
  -- Word translation and export to Anki (together with context and transcription) - key <b>[i]</b><br />
  -- "Again": go to previous phrase, show subtitle and pause video - key <b>[backspace]</b><br />
 </html>]],
-        capabilities = {"input-listener"} --, "menu"}
+        capabilities = {"input-listener", "menu"}
     }
 end
 
@@ -118,15 +175,22 @@ end
 function activate()
     log("Activate")
 
-    if vlc.object.input() then
+    if vlc.object.input() and (sia_settings.chosen_dict or sia_settings.wordnet_dir) then
         gui_show_osd_loading()
     end
 
-    g_dict:load(sia_settings.dict_path)
+    g_found_dicts = g_dict:get_dicts(g_dict:get_dict_paths(sia_settings.dict_dir))
+    g_dict:load(sia_settings.chosen_dict)
+    g_wordnet:load(sia_settings.wordnet_dir)
 
-    if false then
-        log(g_dict:find_raw("arson"))
-        return
+    if is_nil_or_empty(sia_settings.words_file_path) then
+        sia_settings.words_file_path = vlc.config.homedir() .. "\\..\\Desktop\\sia_words.txt"
+    end
+
+    local msg
+    g_words_file, msg = io.open(sia_settings.words_file_path, "a+")
+    if not g_words_file then
+        log("Can't open words file: " .. (msg or "unknown error"))
     end
 
     --TODO consider this
@@ -138,15 +202,7 @@ function activate()
         end
         g_osd_channel = vlc.osd.channel_register()
         gui_show_osd_help()
-        local g_osd_enabled = sia_settings.always_show_subtitles
-    end
-
-    local msg
-    if sia_settings.words_file_path and sia_settings.words_file_path ~= "" then
-        g_words_file, msg = io.open(sia_settings.words_file_path, "a+")
-        if not g_words_file then
-            log("cant open words file: " .. (msg or "unknown error"))
-        end
+        g_osd_enabled = sia_settings.always_show_subtitles
     end
 
     add_callbacks()
@@ -184,24 +240,24 @@ end
 -- main dialog window closed
 function close()
     log("Close")
-    g_dlg.dlg:delete()
     playback_play()
 end
 
--- -- menu items 
--- function menu()
---     return {"Help"}
--- end
+-- menu items 
+function menu()
+    return {"Settings"}
+end
 
--- -- a menu element is selected
--- function trigger_menu(id)
+-- a menu element is selected
+function trigger_menu(id)
 
---     if id == 1 then
---         log("need help? read sources :)")
---     elseif id == 2 then
---         log("Menu2 clicked")
---     end
--- end
+    if id == 1 then
+        playback_pause()
+        gui_show_dialog_settings()
+    elseif id == 2 then
+        log("Menu2 clicked")
+    end
+end
 
 
 --[[  SIA Functions  ]]--
@@ -218,7 +274,7 @@ end
 function g_subtitles:load(spath)
     self.loaded = false
 
-    if not spath or spath == "" then return false, "cant load subtitles: path is nil" end
+    if is_nil_or_empty(spath) then return false, "cant load subtitles: path is nil" end
 
     if spath == self.path then
         self.loaded = true
@@ -227,15 +283,14 @@ function g_subtitles:load(spath)
 
     self.path = spath
 
-    local file, msg = io.open(spath, "r")
-    if not file then return false, "cant load subtitles: " .. (msg or "unknown error") end
-
-    local data = file:read("*a")
-    file:close()
+    local data = read_file(self.path)
+    if not data then return false end
 
     local srt_pattern = "(%d%d):(%d%d):(%d%d),(%d%d%d) %-%-> (%d%d):(%d%d):(%d%d),(%d%d%d).-\n(.-)\n\n"
     for h1, m1, s1, ms1, h2, m2, s2, ms2, text in string.gmatch(data, srt_pattern) do
-        --if charset~=nil then text=vlc.strings.from_charset(charset, text) end   -- TODO charsets
+        if sia_settings.charset then
+            text = vlc.strings.from_charset(sia_settings.charset, text)
+        end
         table.insert(self.subtitles, {to_sec(h1, m1, s1, ms1), to_sec(h2, m2, s2, ms2), text})
     end
 
@@ -243,7 +298,7 @@ function g_subtitles:load(spath)
 
     self.loaded = true
 
-    log("loaded subtitles: " .. spath)
+    log("loaded subtitles: " .. self.path)
 
     return true
 end
@@ -350,18 +405,32 @@ function g_subtitles:_fill_currents(time)
     end
 end
 
-function add_callbacks()
+function add_intf_callback()
     if vlc.object.input() then
         vlc.var.add_callback(vlc.object.input(), "intf-event", input_events_handler, 0)
+        log("callback ON")
     end
+end
+
+function del_intf_callback()
+    if vlc.object.input() then
+        vlc.var.del_callback(vlc.object.input(), "intf-event", input_events_handler, 0)
+        log("callback OFF")
+    end
+end
+
+function add_callbacks()
+    if g_callbacks_set then return end
+    add_intf_callback()
     vlc.var.add_callback(vlc.object.libvlc(), "key-pressed", key_pressed_handler, 0)
+    g_callbacks_set = true
 end
 
 function del_callbacks()
-    if vlc.object.input() then
-        vlc.var.del_callback(vlc.object.input(), "intf-event", input_events_handler, 0)
-    end
+    if not g_callbacks_set then return end
+    del_intf_callback()
     vlc.var.del_callback(vlc.object.libvlc(), "key-pressed", key_pressed_handler, 0)
+    g_callbacks_set = false
 end
 
 function change_callbacks()
@@ -445,16 +514,12 @@ function subtitle_save()
     local input = vlc.object.input()
     if not input then return end
 
-    playback_pause()
-
-    if g_dlg.dlg and g_dlg.dlg.delete then
-        pcall(g_dlg.dlg.delete, g_dlg.dlg) -- 'gently' close the dialog regardless of its state
-    end
-
     g_subtitles:move(vlc.var.get(input, "time"))
 
-    if gui_create_dialog(g_words_file) then
-        g_dlg.dlg:update() -- HACK otherwise it won't show the window
+    local curr_subtitle = g_subtitles:get_current()
+    if curr_subtitle then
+        playback_pause()
+        gui_show_dialog_save_word(curr_subtitle)
     end
 end
 
@@ -485,72 +550,169 @@ function gui_def2str(list)
     return res:sub(1,-7)
 end
 
-function gui_create_dialog(file)
-    local curr_subtitle = g_subtitles:get_current()
-    if not curr_subtitle then
-        return false
+function gui_dict_from_list(found_dicts, list)
+    for k,_ in pairs(list) do
+        return found_dicts[k].filename -- return first in list
+    end
+    return nil
+end
+
+function gui_clear_dialog()
+    --g_dlg.dlg:hide()
+
+    for _,w in pairs(g_dlg.w) do
+        g_dlg.dlg:del_widget(w)
     end
 
-    g_dlg.dlg = vlc.dialog("Say It Again " .. g_version .. " - save the word")
+    g_dlg.w = {}
 
-    g_dlg.lbl_context = g_dlg.dlg:add_label("<b>1. Edit<br />context:</b>",1,1,1,3)
-    g_dlg.lbl_prev_s = g_dlg.dlg:add_label("<font color='grey'>" .. g_subtitles:get_previous() .. "</font>",2,1,8,1)
-    g_dlg.btn_add_prev =g_dlg.dlg:add_button("+", function() g_dlg.tb_curr_s:set_text(g_subtitles:get_previous() .. " " .. g_dlg.tb_curr_s:get_text()) end, 10,1,1,1)
-    g_dlg.tb_curr_s = g_dlg.dlg:add_text_input(curr_subtitle,2,2,9,1)
-    g_dlg.lbl_next_s = g_dlg.dlg:add_label("<font color='grey'>" .. g_subtitles:get_next() .. "</font>",2,3,8,1)
-    g_dlg.btn_add_next =g_dlg.dlg:add_button("+", function() g_dlg.tb_curr_s:set_text(g_dlg.tb_curr_s:get_text() .. " " .. g_subtitles:get_next()) end, 10,3,1,1)
+    gui_del_words_buttons()
 
-    g_dlg.lbl_add_word = g_dlg.dlg:add_label("<br /><b>2. Choose a word to look it up:</b>",1,4,10,1)
-    local cur_line = gui_get_buttons(curr_subtitle, 5)
-    g_dlg.lbl_or_enter = g_dlg.dlg:add_label("or enter:",1,cur_line+1,1,1)
-    g_dlg.tb_word = g_dlg.dlg:add_text_input("",2,cur_line+1,8,1)
-    g_dlg.btn_lookup =g_dlg.dlg:add_button("look up", gui_lookup_word, 10, cur_line+1, 1, 1) -- TODO
+    --g_dlg.dlg:show()
+end
 
-    g_dlg.lbl_choose_def = g_dlg.dlg:add_label("<b>3. Choose appropriate definition(s):</b>",1,cur_line+2,10,1)
+function gui_choose_dict()
+    del_callbacks()
+    g_dict:load(gui_dict_from_list(g_found_dicts, g_dlg.w.list_dict:get_selection()))
+    gui_update_list_dicts()
+    add_callbacks()
+end
 
-    g_dlg.list_def = g_dlg.dlg:add_list(1, cur_line+3, 10, 10)
+function gui_create_dialog_settings()
+    g_dlg.w.lbl_found_dicts = g_dlg.dlg:add_label("",1,1,10,1)
+    g_dlg.w.list_dict = g_dlg.dlg:add_list(1, 2, 10, 5)
+    g_dlg.w.lbl_note = g_dlg.dlg:add_label("Dictionaries marked with '*' have known format",1,7,10,1)
+    g_dlg.w.btn_choose = g_dlg.dlg:add_button("Choose", gui_choose_dict, 5,8,2,1)
+end
 
-    g_dlg.btn_get_tr = g_dlg.dlg:add_button("edit def", function() g_dlg.tb_def:set_text(gui_def2str(g_dlg.list_def:get_selection())) end, 1, cur_line+13, 1, 1)
-    g_dlg.tb_def = g_dlg.dlg:add_text_input("",2,cur_line+13,8,1)
-    if g_words_file then
-        g_dlg.btn_save = g_dlg.dlg:add_button("SAVE >>>", gui_save_word, 10, cur_line+13, 1, 1)
-    else
-        g_dlg.lbl_cant_save = g_dlg.dlg:add_label("<font color='grey'> [CANT SAVE]</font>",10,cur_line+13,1,1)
-    end
-    g_dlg.lbl_file = g_dlg.dlg:add_label("File '" .. (sia_settings.words_file_path or "n/a") .. "':",11,1,4,1)
-    g_dlg.list_file = g_dlg.dlg:add_list(11, 2, 4, cur_line+12)
-
-    if g_words_file then
-        g_words_file:seek("set")
-        for line in file:lines() do
-            g_dlg.list_file:add_value(line, 0)
+function gui_show_dialog_settings()
+    del_intf_callback() -- HACK avoid vlc hanging
+    if g_current_dialog ~= "settings" then
+        log("creating dialog: settings")
+        if g_dlg.dlg then
+            gui_clear_dialog()
+        else
+            log("creating dialog for the first time")
+            g_dlg.dlg = vlc.dialog("Say It Again " .. g_version)
+            g_dlg.w = {} -- widgets
         end
+
+        gui_create_dialog_settings()
+    end
+    
+    local lbl = "Dictionaries found in '"..(sia_settings.dict_dir or "n/a").."':"
+    lbl = lbl .. ("&nbsp;"):rep(70)
+
+    g_dlg.w.lbl_found_dicts:set_text(lbl)
+
+    gui_update_list_dicts()
+
+    g_current_dialog = "settings"
+    g_dlg.dlg:update()
+
+    add_intf_callback()
+
+    return true
+end
+
+function gui_update_list_dicts()
+    if not g_dlg.w or not g_dlg.w.list_dict then return end
+
+    g_dlg.w.list_dict:clear()
+
+    for i,dict in ipairs(g_found_dicts) do
+        local is_current = g_dict.loaded and (dict.full_name == g_dict.name)
+        g_dlg.w.list_dict:add_value((is_current and ">" or "  ") .. (dict.is_known_format and "*" or " ") .. dict.full_name, i)
+    end
+end
+
+function gui_create_dialog_save_word()
+    g_dlg.w.lbl_context = g_dlg.dlg:add_label("<b>1. Edit<br />context:</b>",1,1,1,3)
+    g_dlg.w.lbl_prev_s = g_dlg.dlg:add_label("",2,1,8,1)
+    g_dlg.w.btn_add_prev =g_dlg.dlg:add_button("+", function() g_dlg.w.tb_curr_s:set_text(g_subtitles:get_previous() .. " " .. g_dlg.w.tb_curr_s:get_text()) end, 10,1,1,1)
+    g_dlg.w.tb_curr_s = g_dlg.dlg:add_text_input("",2,2,9,1)
+    g_dlg.w.lbl_next_s = g_dlg.dlg:add_label("",2,3,8,1)
+    g_dlg.w.btn_add_next =g_dlg.dlg:add_button("+", function() g_dlg.w.tb_curr_s:set_text(g_dlg.w.tb_curr_s:get_text() .. " " .. g_subtitles:get_next()) end, 10,3,1,1)
+
+    g_dlg.w.lbl_add_word = g_dlg.dlg:add_label("<br /><b>2. Choose a word to look it up:</b>",1,4,10,1)
+    -- (words buttons here)
+    g_dlg.w.lbl_or_enter = g_dlg.dlg:add_label("or enter:",1,7,1,1)
+    g_dlg.w.tb_word = g_dlg.dlg:add_text_input("",2,7,8,1)
+    g_dlg.w.btn_lookup =g_dlg.dlg:add_button("look up", gui_lookup_word, 10, 7, 1, 1)
+    g_dlg.w.lbl_choose_def = g_dlg.dlg:add_label("<b>3. Choose appropriate definition(s):</b>",1,8,10,1)
+    g_dlg.w.list_def = g_dlg.dlg:add_list(1, 9, 10, 10)
+
+    g_dlg.w.btn_get_tr = g_dlg.dlg:add_button("edit def", function() g_dlg.w.tb_def:set_text(gui_def2str(g_dlg.w.list_def:get_selection())) end, 1, 19, 1, 1)
+    g_dlg.w.tb_def = g_dlg.dlg:add_text_input("",2,19,8,1)
+    g_dlg.w.btn_save = g_dlg.dlg:add_button("SAVE >>>", gui_save_word, 10, 19, 1, 1)
+
+    g_dlg.w.lbl_file = g_dlg.dlg:add_label("File '" .. (sia_settings.words_file_path or "n/a") .. "':",11,1,4,1)
+    g_dlg.w.list_file = g_dlg.dlg:add_list(11, 2, 4, 18)
+end
+
+function gui_show_dialog_save_word(curr_subtitle)
+    del_intf_callback() -- HACK avoid vlc hanging
+    if g_current_dialog ~= "save_word" then
+        log("creating dialog: save_word")
+        if g_dlg.dlg then
+            gui_clear_dialog()
+        else
+            log("creating dialog for the first time")
+            g_dlg.dlg = vlc.dialog("Say It Again " .. g_version)
+            g_dlg.w = {} -- widgets
+        end
+
+        gui_create_dialog_save_word()
     else
-        g_dlg.list_file:add_value("could not open the file :(", 0)
+        gui_del_words_buttons()
     end
 
+    g_dlg.w.lbl_prev_s:set_text("<font color='grey'>" .. g_subtitles:get_previous() .. "</font>")
+    g_dlg.w.tb_curr_s:set_text(curr_subtitle)
+    g_dlg.w.lbl_next_s:set_text("<font color='grey'>" .. g_subtitles:get_next() .. "</font>")
+
+    g_dlg.btns = gui_get_words_buttons(curr_subtitle, 5)
+    
+    g_dlg.w.list_def:clear()
+    g_dlg.w.list_file:clear()
+
+    if not g_words_file then
+        g_dlg.w.btn_save:set_text("[CANT SAVE]")
+        g_dlg.w.list_file:add_value("could not open the file :(", 0)
+    else
+        g_words_file:seek("set")
+        for line in g_words_file:lines() do
+            g_dlg.w.list_file:add_value(line, 0)
+        end 
+    end
+
+    g_current_dialog = "save_word"
+    g_dlg.dlg:update()
+    add_intf_callback()
     return true
 end
 
 -- takes the word from tb_word and fills list_def with definitions
 function gui_lookup_word()
-    g_dlg.list_def:clear()
+    g_dlg.w.list_def:clear()
 
     if not g_dict.loaded then
-        g_dlg.list_def:add_value("No dictionary loaded :(", 0)
-        g_dlg.list_def:add_value("But you can still enter definition manually", 0)
+        g_dlg.w.list_def:add_value("No dictionary loaded :(", 0)
+        g_dlg.w.list_def:add_value("But you can still enter definition manually", 0)
         return false
     end
 
-    local word = g_dlg.tb_word:get_text()
-    local def = g_dict:find_tbl(word)
+    local word = g_dlg.w.tb_word:get_text()
+    local def, lemma = g_dict:find_tbl(word)
     if def and #def > 0 then
         g_dlg.tr = def.tr
         for i,v in ipairs(def) do
-            g_dlg.list_def:add_value(v, i)
+            g_dlg.w.list_def:add_value(v, i)
         end
+
+        g_dlg.w.tb_word:set_text(lemma)
     else
-        g_dlg.list_def:add_value("no result :(", 0)
+        g_dlg.w.list_def:add_value("no result :(", 0)
         return false
     end
 
@@ -563,14 +725,14 @@ function gui_save_word()
         return
     end
 
-    local word = g_dlg.tb_word:get_text()
-    local def = g_dlg.tb_def:get_text()
+    local word = g_dlg.w.tb_word:get_text()
+    local def = g_dlg.w.tb_def:get_text()
 
-    if not def or def == "" then
-        def = gui_def2str(g_dlg.list_def:get_selection())
+    if is_nil_or_empty(def) then
+        def = gui_def2str(g_dlg.w.list_def:get_selection())
     end
 
-    if not word or word == "" or not def or def == "" then
+    if is_nil_or_empty(word) or is_nil_or_empty(def) then
         log("either no word or no definition selected")
         return
     end
@@ -578,22 +740,26 @@ function gui_save_word()
     local transcription = g_dlg.tr and ("["..g_dlg.tr.."]") or ""
 
     
-    local context = string.gsub(g_dlg.tb_curr_s:get_text(), "\n", " ") or ""
+    local context = string.gsub(g_dlg.w.tb_curr_s:get_text(), "\n", " ") or ""
     local tags = get_title() or ""
 
-    local res = word .. "\t" .. transcription .. "\t" .. def .. "\t" .. context .. "\t" .. tags
+    local res = word .. "\t" .. transcription .. "\t" .. def .. "\t" .. context .. "\t\t" .. tags
 
-    g_dlg.list_file:add_value(res, 0)
+    g_dlg.w.list_file:add_value(res, 0)
     g_words_file:write(res .. "\r\n")
     g_words_file:flush()
 end
 
-function gui_get_buttons(subtitle, cur_line)
+function gui_get_words_buttons(subtitle, cur_line)
     local btns = {}
     local i = 1
     for word in string.gmatch(subtitle, "%a[%a-]+%a") do
         if not g_ignored_words:contains(word) then
-            table.insert(btns, g_dlg.dlg:add_button(word, function() g_dlg.tb_word:set_text(word:lower()) gui_lookup_word() end, i, cur_line, 1, 1))
+            local lemma = word:lower()
+            if g_wordnet and g_wordnet.loaded then -- try to search for lemma
+                lemma = g_wordnet:get_lemma(word:lower())
+            end
+            table.insert(btns, g_dlg.dlg:add_button(word, function() g_dlg.w.tb_word:set_text(lemma) gui_lookup_word() end, i, cur_line, 1, 1))
             i = i + 1
             if i > 10 then
                 cur_line = cur_line + 1
@@ -601,7 +767,16 @@ function gui_get_buttons(subtitle, cur_line)
             end
         end
     end
-    return cur_line
+    return btns
+end
+
+function gui_del_words_buttons()
+    if g_dlg.dlg and g_dlg.btns then
+        for _,btn in ipairs(g_dlg.btns) do
+            g_dlg.dlg:del_widget(btn)
+        end
+    end
+    g_dlg.btns = nil
 end
 
 --[[  Utils  ]]--
@@ -633,15 +808,13 @@ function get_title()
     if not item then return "" end
 
     local metas = item.metas and item:metas()
-    if not metas then return "" end
+    if not metas then return string.match(item:name() or "", "^(.*)%.") or item:name() end
 
     if metas["title"] then
         return metas["title"]
     else
-        local filename = string.gsub(item:name(), "^(.+)%.%w+$", "%1")
-        return trim(filename or item:name())
+        return string.match(item:name() or "", "^(.*)%.") or item:name()
     end
-    
 end
 
 function get_subtitles_path()
@@ -660,7 +833,7 @@ end
 
 function trim(str)
     if not str then return "" end
-    return string.gsub(str, "^%s*(.-)%s*$", "%1")
+    return str:match("^%s*(.*%S)") or ""
 end
 
 function to_sec(h,m,s,ms)
@@ -690,26 +863,41 @@ function bytes_to_int32(str)
         string.byte(str,3)*0x100 + string.byte(str,4)
 end
 
+function read_file(path, binary)
+    if is_nil_or_empty(path) then
+        log("Can't open file: Path is empty")
+        return nil
+    end
+
+    local f, msg = io.open(path, "r" .. (binary and "b" or ""))
+
+    if not f then
+        log("Can't open file '"..path.."': ".. (msg or "unknown error"))
+        return nil
+    end
+
+    local res = f:read("*all")
+
+    f:close()
+
+    return res
+end
+
+function is_nil_or_empty(str)
+    return not str or str == ""
+end
+
 
 --[[ Work with dictionary ]]--
 
 -- parses .idx file
 -- file format (binary data): entry_name\0 offset(4bytes) size(4bytes)
 function g_dict:_load_index(path)
-
     if not path then return nil end
 
-    local f, msg = io.open(path..".idx", "rb")
-
-    if not f then
-        log("Cant open index file '"..(path..".idx").."': "..msg)
-        return false
-    end
-
     log("Loading index: "..(path..".idx"))
-
-    local idx_str = f:read("*all")
-    f:close()
+    local idx_str = read_file(path..".idx", true)
+    if not idx_str then return nil end
 
     local enb = 1 -- entry name begin
     local ene = string.find(idx_str,'\0',enb) -- entry name end
@@ -729,35 +917,22 @@ function g_dict:_load_index(path)
     return true
 end
 
-local g_dict_fmt = {
-    {pattern = "LingvoUniversal", tr = "<tr>(.-)</tr>", def = "<dtrn>(.-)</dtrn>", not_def = nil},
-    {pattern = "Merriam%-Webster", tr = "<co>\\(.-)\\</co>", def = "<dtrn> <b>:</b> (.-)</dtrn>", not_def = nil},
-    {pattern = "Macmillan", tr = "<c c=\"teal\">%[(.-)%]</c>", def = "<blockquote>(.-)</blockquote>", not_def = {"<ex>", "c=\"darkslategray\""}},
-    {pattern = "Longman", tr = " /(.-)/ ", def = "<blockquote>(.-)</blockquote>", not_def = {"<ex>", "Word Family:", "Origin: ", "c=\"crimson\"", "c=\"chocolate\"", "c=\"darkgoldenrod\"", "c=\"gray\""}},
-    {pattern = ".*", tr = nil, def = "(.-)\n", not_def = nil}, -- for unknown dictionaries
-}
-
 -- returns name and format table
 function g_dict:load_info(path)
-    local f, msg = io.open(path..".ifo", "r")
+    if not path then return nil end
 
-    if not f then
-        log("Cant load ifo file '"..(path..".ifo").."': "..(msg or "unknown error"))
-        return nil
-    end
-
-    local ifo_str = f:read("*all")
-    f:close()
+    local ifo_str = read_file(path..".ifo")
+    if not ifo_str then return nil end
 
     local bookname = ifo_str:match("bookname=(.-)\n")
-    if not bookname or bookname == "" then
+    if is_nil_or_empty(bookname) then
         log("Cant read bookname")
         return nil
     end
 
     for i,fmt in ipairs(g_dict_fmt) do
         if bookname:match(fmt.pattern) then
-            log("matched pattern: "..fmt.pattern)
+            --log("matched pattern: "..fmt.pattern)
             return bookname, fmt
         end
     end
@@ -766,9 +941,9 @@ function g_dict:load_info(path)
 end
 
 function g_dict:load(path)
-    self.loaded = false
+    if is_nil_or_empty(path) then return false end
 
-    if not path or path == "" then return false end
+    self:destroy()
 
     local name, fmt = self:load_info(path)
     if not name or not fmt then
@@ -776,8 +951,9 @@ function g_dict:load(path)
         return false
     end
 
-    log("Using dictionary: "..name)
+    log("Using dictionary: ".. name)
     self.format = fmt
+    self.name = name
 
     local idx_loaded = self:_load_index(path)
 
@@ -801,6 +977,7 @@ end
 
 function g_dict:destroy()
     self.loaded = false
+    self.name = nil
     self.idx_table = {}
     if self.dict_file then self.dict_file:close() end
     self.dict_file = nil
@@ -810,7 +987,13 @@ end
 function g_dict:find_raw(word)
     if not self.loaded then return nil end
 
-    local idx_value = self.idx_table[word]
+    local lemma = word
+    local idx_value = self.idx_table[lemma]
+
+    if not idx_value and g_wordnet and g_wordnet.loaded then -- try to search for lemma
+        lemma = g_wordnet:get_lemma(word)
+        if lemma then idx_value = self.idx_table[lemma] end
+    end
 
     if idx_value then
         self.dict_file:seek("set", idx_value[1])
@@ -820,14 +1003,14 @@ function g_dict:find_raw(word)
             log("Error reading dictionary entry: "..(msg or "unknown error"))
             return nil
         end
-        return entry
+        return entry, lemma
     end
 
     return nil
 end
 
 function g_dict:find_tbl(word)
-    local str = self:find_raw(word)
+    local str, lemma = self:find_raw(word)
     local res = {}
     if str then
         if self.format.tr then res.tr = filter_html(str:match(self.format.tr)) end
@@ -849,6 +1032,110 @@ function g_dict:find_tbl(word)
                 table.insert(res, def)
             end
         end
+    end
+    return res, lemma
+end
+
+-- returns paths of dictionaries files found in given directory
+function g_dict:get_dict_paths(directory)
+    if is_nil_or_empty(directory) or not vlc.net.stat(directory) then return nil end
+    local res = {}
+    for _,v in ipairs(vlc.net.opendir(directory)) do
+        local fname = v:match("(.*)%.ifo$")
+        if fname then
+            table.insert(res, directory.."/"..fname)
+        end
+    end
+    return res
+end
+
+-- returns a table with the following fields: {filename, full_name, is_known_format, fmt_table}
+function g_dict:get_dicts(paths)
+    if not paths then return {} end
+    local res = {}
+    for _,v in ipairs(paths) do
+        -- check if all three dict files are present
+        if vlc.net.stat(v..".dict") and vlc.net.stat(v..".idx") then
+            local full_name, fmt = self:load_info(v)
+            if full_name and fmt then
+                --log(full_name)
+                table.insert(res, {filename=v, full_name=full_name, is_known_format=(fmt.pattern ~= ".*"), fmt_table=fmt})
+            end
+        end
+    end
+    return res
+end
+
+
+--[[  WordNet  ]]--
+
+function g_wordnet:load(wordnet_path)
+    self.loaded = false
+
+    if is_nil_or_empty(wordnet_path) then return false end
+
+    log("Initializing WordNet...")
+
+    local posn = {"verb", "adj", "adv", "noun"}
+    for i,pos in ipairs(posn) do
+        self.poss[i] = {name = pos}
+        self.poss[i].exc = self:_load_exc_file(wordnet_path .. "/" .. pos .. ".exc")
+        self.poss[i].idx = self:_load_index_file(wordnet_path .. "/" .. "index." .. pos)
+
+        if not self.poss[i].exc or not self.poss[i].idx then
+            self:destroy()
+            log("Can't initialize WordNet")
+            return false
+        end
+    end
+
+    log("WordNet initialized successfully!")
+
+    self.loaded = true
+    return true
+end
+
+function g_wordnet:destroy()
+    self.loaded = false
+    self.poss = {}
+end
+
+function g_wordnet:get_lemma(word)
+    if not word or word:len() <= 1 then return word end
+
+    for _,pos in ipairs(self.poss) do
+        if pos.name == "noun" and word:match("ss$") then
+            return word
+        end
+
+        if pos.idx[word] then return word end
+        if pos.exc[word] then return pos.exc[word] end
+
+        for _,rule in ipairs(self.rules[pos.name]) do
+            local new_word, subsn = word:gsub(rule[1].."$", rule[2])
+            if subsn > 0 and pos.idx[new_word] then return new_word end
+        end
+    end
+
+    return word
+end
+
+function g_wordnet:_load_exc_file(path)
+    local data = read_file(path)
+    if not data then return nil end
+    local res = {}
+    for w,l in data:gmatch("(%S+)%s(%S+)\n") do
+        res[w] = l
+    end
+    return res
+end
+
+function g_wordnet:_load_index_file(path)
+    local data = read_file(path)
+    if not data then return nil end
+    local res = {}
+    for w in data:gmatch("\n(%S+)") do
+        res[w] = true
     end
     return res
 end
