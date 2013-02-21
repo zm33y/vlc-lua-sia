@@ -72,7 +72,7 @@ local sia_settings =
 
 
 --[[  Global variables (no midifications beyond this point) ]]--
-local g_version = "0.0.2"
+local g_version = "0.0.3"
 local g_ignored_words = {"and", "the", "that", "not", "with", "you"}
 
 local g_osd_enabled = false
@@ -289,7 +289,7 @@ function g_subtitles:load(spath)
 
     local data = read_file(self.path)
     if not data then return false end
-
+ 
     data = data:gsub("\r\n", "\n") -- fixes issues with Linux
     local srt_pattern = "(%d%d):(%d%d):(%d%d),(%d%d%d) %-%-> (%d%d):(%d%d):(%d%d),(%d%d%d).-\n(.-)\n\n"
     for h1, m1, s1, ms1, h2, m2, s2, ms2, text in string.gmatch(data, srt_pattern) do
