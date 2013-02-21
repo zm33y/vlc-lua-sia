@@ -184,7 +184,11 @@ function activate()
     g_wordnet:load(sia_settings.wordnet_dir)
 
     if is_nil_or_empty(sia_settings.words_file_path) then
-        sia_settings.words_file_path = vlc.config.homedir() .. "\\..\\Desktop\\sia_words.txt"
+        if (is_unix_platform()) then
+            sia_settings.words_file_path = vlc.config.homedir() .. "/Desktop/sia_words.txt"
+        else
+            sia_settings.words_file_path = vlc.config.homedir() .. "\\..\\Desktop\\sia_words.txt"
+        end
     end
 
     local msg
@@ -286,6 +290,7 @@ function g_subtitles:load(spath)
     local data = read_file(self.path)
     if not data then return false end
 
+    data = data:gsub("\r\n", "\n") -- fixes issues with Linux
     local srt_pattern = "(%d%d):(%d%d):(%d%d),(%d%d%d) %-%-> (%d%d):(%d%d):(%d%d),(%d%d%d).-\n(.-)\n\n"
     for h1, m1, s1, ms1, h2, m2, s2, ms2, text in string.gmatch(data, srt_pattern) do
         if sia_settings.charset then
@@ -408,14 +413,12 @@ end
 function add_intf_callback()
     if vlc.object.input() then
         vlc.var.add_callback(vlc.object.input(), "intf-event", input_events_handler, 0)
-        log("callback ON")
     end
 end
 
 function del_intf_callback()
     if vlc.object.input() then
         vlc.var.del_callback(vlc.object.input(), "intf-event", input_events_handler, 0)
-        log("callback OFF")
     end
 end
 
@@ -636,15 +639,15 @@ function gui_create_dialog_save_word()
 
     g_dlg.w.lbl_add_word = g_dlg.dlg:add_label("<br /><b>2. Choose a word to look it up:</b>",1,4,10,1)
     -- (words buttons here)
-    g_dlg.w.lbl_or_enter = g_dlg.dlg:add_label("or enter:",1,7,1,1)
-    g_dlg.w.tb_word = g_dlg.dlg:add_text_input("",2,7,8,1)
-    g_dlg.w.btn_lookup =g_dlg.dlg:add_button("look up", gui_lookup_word, 10, 7, 1, 1)
-    g_dlg.w.lbl_choose_def = g_dlg.dlg:add_label("<b>3. Choose appropriate definition(s):</b>",1,8,10,1)
-    g_dlg.w.list_def = g_dlg.dlg:add_list(1, 9, 10, 10)
+    g_dlg.w.lbl_or_enter = g_dlg.dlg:add_label("or enter:",1,9,1,1)
+    g_dlg.w.tb_word = g_dlg.dlg:add_text_input("",2,9,8,1)
+    g_dlg.w.btn_lookup =g_dlg.dlg:add_button("look up", gui_lookup_word, 10, 9, 1, 1)
+    g_dlg.w.lbl_choose_def = g_dlg.dlg:add_label("<b>3. Choose appropriate definition(s):</b>",1,10,10,1)
+    g_dlg.w.list_def = g_dlg.dlg:add_list(1, 11, 10, 10)
 
-    g_dlg.w.btn_get_tr = g_dlg.dlg:add_button("edit def", function() g_dlg.w.tb_def:set_text(gui_def2str(g_dlg.w.list_def:get_selection())) end, 1, 19, 1, 1)
-    g_dlg.w.tb_def = g_dlg.dlg:add_text_input("",2,19,8,1)
-    g_dlg.w.btn_save = g_dlg.dlg:add_button("SAVE >>>", gui_save_word, 10, 19, 1, 1)
+    g_dlg.w.btn_get_tr = g_dlg.dlg:add_button("edit def", function() g_dlg.w.tb_def:set_text(gui_def2str(g_dlg.w.list_def:get_selection())) end, 1, 21, 1, 1)
+    g_dlg.w.tb_def = g_dlg.dlg:add_text_input("",2,21,8,1)
+    g_dlg.w.btn_save = g_dlg.dlg:add_button("SAVE >>>", gui_save_word, 10, 21, 1, 1)
 
     g_dlg.w.lbl_file = g_dlg.dlg:add_label("File '" .. (sia_settings.words_file_path or "n/a") .. "':",11,1,4,1)
     g_dlg.w.list_file = g_dlg.dlg:add_list(11, 2, 4, 18)
@@ -817,11 +820,37 @@ function get_title()
     end
 end
 
+function uri_to_path(uri, is_unix_platform)
+    if is_nil_or_empty(uri) then return "" end
+    local path
+    if not is_unix_platform then
+        if uri:match("file://[^/]") then -- path to windows share
+            path = uri:gsub("file://", "\\\\")
+        else
+            path = uri:gsub("file:///", "")
+        end
+        return path:gsub("/", "\\")
+    else
+        return uri:gsub("file://", "")
+    end
+end
+
+function is_unix_platform()
+    if string.match(vlc.config.homedir(), "^/") then
+        return true
+    else
+        return false
+    end
+end
+
 function get_subtitles_path()
     local item = get_input_item()
     if not item then return "" end
 
-    return string.match(vlc.strings.decode_uri(item:uri()), "^.-///(.*)%.") .. ".srt"
+    local path_to_video = uri_to_path(vlc.strings.decode_uri(item:uri()), is_unix_platform())
+    log(path_to_video)
+
+    return path_to_video:gsub("[^.]*$", "") .. "srt"
 end
 
 function filter_html(str)
