@@ -866,7 +866,7 @@ function trim(str)
 end
 
 function to_sec(h,m,s,ms)
-    return tonumber(h)*3600 + tonumber(m)*60 + tonumber(s) + tonumber("0."..ms)
+    return tonumber(h)*3600 + tonumber(m)*60 + tonumber(s) + tonumber(ms)/1000
 end
 
 function playback_goto(input, time)
