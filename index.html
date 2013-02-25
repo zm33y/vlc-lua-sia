@@ -10,7 +10,7 @@
     <!--[if lt IE 9]>
     <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
     <![endif]-->
-    <title>Say It Again by zm33y</title>
+    <title>TV Language - Learn a language while watching TV!</title>
     
     <script type="text/javascript">
         var _gaq = _gaq || [];
@@ -44,31 +44,55 @@
         <hr>
 
         <section id="main_content">
-          <h2>How It Looks</h2>
-
-<p><img src="http://habrastorage.org/storage2/b1f/cf8/891/b1fcf8891ddebba05b9e4d4bff1d5ca8.png" alt="screenshot"></p>
-
-<h2>Features</h2>
-
+<h2>What Is This?</h2>
+An extension for the <a href="http://www.videolan.org/vlc/">VLC Media Player</a> with the following features:
 <ul>
-<li>Phrases navigation (go to previous, next subtitle) - keys <strong>[y]</strong>, <strong>[u]</strong>
+<li>Per-phrase navigation (go to previous, next subtitle) - keys <strong>[y]</strong>, <strong>[u]</strong>
 </li>
-<li>Word translation and export to Anki (together with context and transcription) - key <strong>[i]</strong>
+<li>Word translation and export to <a href="http://ankisrs.net/">Anki</a> (together with context and transcription) - key <strong>[i]</strong>
 </li>
 <li>"Again": go to previous phrase, show subtitle and pause video - key <strong>[backspace]</strong>
 </li>
-</ul><h2>How To Install And Use</h2>
+<li>Works with any dictionary in Stardict format (dictionaries from <a href="http://google.com/search?q=babylon+stardict+torrent">Babylon</a>, <a href="http://google.com/search?q=lingvo+x3+stardict+torrent">Lingvo</a> etc)
+</li>
+</ul>
+<h2>How It Looks</h2>
+<p><img src="http://habrastorage.org/storage2/b1f/cf8/891/b1fcf8891ddebba05b9e4d4bff1d5ca8.png" alt="screenshot"></p>
+
+<h2>Why?</h2>
+<p>To learn new words that you have encountered while watching your favorite TV show. It makes learning new vocabulary more fun and efficient.</p>
+
+<h2>How To Install</h2>
 
 <ol>
-<li>Copy <em>say_it_again.lua</em> to <em>%ProgramFiles%\VideoLAN\VLC\lua\extensions\</em> (or <em>/usr/share/vlc/lua/extensions/</em> for Linux users)</li>
-<li>Download a dictionary in Stardict format (<a href="http://google.com/search?q=lingvo+x3+stardict+torrent">google it</a>; keep in mind that it is kind of illegal, though)</li>
-<li>Extract dictionaries: there should be three files (.ifo, .idx and .dict (not .dz)) in one directory</li>
-<li>Edit <em>say_it_again.lua</em>: specify <strong>dict_path</strong> and <strong>words_file_path</strong>
+<li>Copy <a href="https://github.com/zm33y/vlc-lua-sia/zipball/master">say_it_again.lua</a> to:<br />
+  &nbsp;&nbsp;* <strong>Windows (all users)</strong>: %ProgramFiles%\VideoLAN\VLC\lua\extensions\<br />
+  &nbsp;&nbsp;* <strong>Windows (current user)</strong>: %APPDATA%\VLC\lua\extensions\<br />
+  &nbsp;&nbsp;* <strong>Linux (all users)</strong>: /usr/share/vlc/lua/extensions/<br />
+  &nbsp;&nbsp;* <strong>Linux (current user)</strong>: ~/.local/share/vlc/lua/extensions/<br />
+  &nbsp;&nbsp;* <strong>Mac OS X (all users)</strong>: /Applications/VLC.app/Contents/MacOS/share/lua/extensions/<br />
 </li>
-<li>Restart VLC, go to <em>"View"</em> and select <em>"Say It Again"</em> extension there</li>
-<li>????</li>
-<li><strong>PROFIT!</strong></li>
+<li>Download a dictionary in Stardict format (<a href="http://google.com/search?q=lingvo+x3+stardict+torrent">google it</a>; keep in mind that it is kind of illegal, though).
+</li>
+<li>Extract dictionaries: there should be <strong>three</strong> files (.ifo, .idx and .dict) in one directory. If there is a .dz file instead of .dict, then extract it as well (it is a zip archive).
+</li>
+<li>Download <a href="http://wordnetcode.princeton.edu/wn3.1.dict.tar.gz">WordNet bases</a> and extract them somewhere.
+</li>
+<li>Edit <em>say_it_again.lua</em>: specify <strong>dict_dir</strong>, <strong>wordnet_dir</strong> and <strong>chosen_dict</strong> (<a href="http://habrastorage.org/storage2/c56/86c/330/c5686c330959eb617d40cef9b3d96998.png">example</a>).
+</li>
+<li>Restart VLC.
+</li>
 </ol>
+
+<h2>How To Use</h2>
+<ol>
+<li>Open a video file with a .srt file located near it (embedded subs are not supported).
+</li>
+<li>Activate extension: go to <em>"View"</em> and select <em>"Say It Again"</em> extension there.
+</li>
+<li>Use keys <strong>y</strong>, <strong>u</strong>, <strong>i</strong> and <strong>backspace</strong> (see above).
+</li>
+<ol>
         </section>
 
         <footer>
