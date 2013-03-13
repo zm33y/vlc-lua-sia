@@ -748,6 +748,8 @@ function gui_save_word()
     local tags = get_title() or ""
 
     local res = word .. "\t" .. transcription .. "\t" .. def .. "\t" .. context .. "\t\t" .. tags
+    
+    g_dlg.w.tb_def:set_text("") -- clear custom definition
 
     g_dlg.w.list_file:add_value(res, 0)
     g_words_file:write(res .. "\r\n")
