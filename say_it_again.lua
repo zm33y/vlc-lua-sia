@@ -72,7 +72,7 @@ local sia_settings =
 
 
 --[[  Global variables (no midifications beyond this point) ]]--
-local g_version = "0.0.3"
+local g_version = "0.0.4"
 local g_ignored_words = {"and", "the", "that", "not", "with", "you"}
 
 local g_osd_enabled = false
@@ -756,7 +756,9 @@ end
 function gui_get_words_buttons(subtitle, cur_line)
     local btns = {}
     local i = 1
-    for word in string.gmatch(subtitle, "%a[%a-]+%a") do
+    -- match words that are at least 3 chars long and may contain hyphens
+    -- we don't use '%a' here because it requires changing system locale to match non-ascii chars like 'á'
+    for word in string.gmatch(subtitle, "[^%c%p%s%d][^%c%s%d]+[^%c%p%s%d]") do
         if not g_ignored_words:contains(word) then
             local lemma = word:lower()
             if g_wordnet and g_wordnet.loaded then -- try to search for lemma
