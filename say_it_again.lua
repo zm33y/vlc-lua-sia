@@ -112,6 +112,7 @@ local g_dict_fmt = {
     {pattern = "Merriam%-Webster", tr = "<co>\\(.-)\\</co>", def = "<dtrn> <b>:</b> (.-)</dtrn>", not_def = nil},
     {pattern = "Macmillan", tr = "<c c=\"teal\">%[(.-)%]</c>", def = "<blockquote>(.-)</blockquote>", not_def = {"<ex>", "c=\"darkslategray\""}},
     {pattern = "Longman", tr = " /(.-)/ ", def = "<blockquote>(.-)</blockquote>", not_def = {"<ex>", "Word Family:", "Origin: ", "c=\"crimson\"", "c=\"chocolate\"", "c=\"darkgoldenrod\"", "c=\"gray\""}},
+    {pattern = "Babylon", tr = nil, def = "[>;,]%s(.-)%f[^%a%s]", not_def = nil}, -- uses the undocumented frontier pattern %f to work even at the end of the string
     {pattern = ".*", tr = nil, def = "(.-)\n", not_def = nil}, -- for unknown dictionaries
 }
 
@@ -747,6 +748,8 @@ function gui_save_word()
     local tags = get_title() or ""
 
     local res = word .. "\t" .. transcription .. "\t" .. def .. "\t" .. context .. "\t\t" .. tags
+    
+    g_dlg.w.tb_def:set_text("") -- clear custom definition
 
     g_dlg.w.list_file:add_value(res, 0)
     g_words_file:write(res .. "\r\n")
