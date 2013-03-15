@@ -72,7 +72,7 @@ local sia_settings =
 
 
 --[[  Global variables (no midifications beyond this point) ]]--
-local g_version = "0.0.5"
+local g_version = "0.0.6"
 local g_ignored_words = {"and", "the", "that", "not", "with", "you"}
 
 local g_osd_enabled = false
@@ -294,10 +294,12 @@ function g_subtitles:load(spath)
     data = data:gsub("\r\n", "\n") -- fixes issues with Linux
     local srt_pattern = "(%d%d):(%d%d):(%d%d),(%d%d%d) %-%-> (%d%d):(%d%d):(%d%d),(%d%d%d).-\n(.-)\n\n"
     for h1, m1, s1, ms1, h2, m2, s2, ms2, text in string.gmatch(data, srt_pattern) do
-        if sia_settings.charset then
-            text = vlc.strings.from_charset(sia_settings.charset, text)
+        if not is_nil_or_empty(text) then
+            if sia_settings.charset then
+                text = vlc.strings.from_charset(sia_settings.charset, text)
+            end
+            table.insert(self.subtitles, {to_sec(h1, m1, s1, ms1), to_sec(h2, m2, s2, ms2), text})
         end
-        table.insert(self.subtitles, {to_sec(h1, m1, s1, ms1), to_sec(h2, m2, s2, ms2), text})
     end
 
     if #self.subtitles==0 then return false, "cant load subtitles: could not parse" end
