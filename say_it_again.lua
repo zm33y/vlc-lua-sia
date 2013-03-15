@@ -4,7 +4,7 @@
 | |~           | |
 | | tvlang.com | |        for more details visit:
 | |            | |  =D.
-| '------------' | _   )    http://tvlang.com/sia
+| '------------' | _   )    http://tvlang.com
 |  ###### o o [] |/ `-'
 '================'
 
@@ -72,7 +72,7 @@ local sia_settings =
 
 
 --[[  Global variables (no midifications beyond this point) ]]--
-local g_version = "0.0.4"
+local g_version = "0.0.5"
 local g_ignored_words = {"and", "the", "that", "not", "with", "you"}
 
 local g_osd_enabled = false
