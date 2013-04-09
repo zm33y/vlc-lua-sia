@@ -68,6 +68,7 @@ local sia_settings =
     key_next_subt = 117, -- u
     key_again = 8, -- backspace
     key_save = 105, -- i
+    time_shift = 1.5
 }
 
 
@@ -445,6 +446,10 @@ function change_callbacks()
     end
 end
 
+function get_vlc_time(input)
+  return vlc.var.get(input, "time") + sia_settings.time_shift
+end
+
 function input_events_handler(var, old, new, data)
 
     -- listen to input events only to show subtitles
@@ -452,7 +457,7 @@ function input_events_handler(var, old, new, data)
 
     -- get current time
     local input = vlc.object.input()
-    local current_time = vlc.var.get(input, "time")
+    local current_time = get_vlc_time(input)
 
     -- if the video was paused by 'again!' button (backspace by default)
     --  then restore initial g_osd_enabled state
@@ -483,7 +488,7 @@ function goto_prev_subtitle()
     local input = vlc.object.input()
     if not input then return end
 
-    local curr_time = vlc.var.get(input, "time")
+    local curr_time = get_vlc_time(input)
 
     g_subtitles:move(curr_time)
 
@@ -494,7 +499,7 @@ function goto_next_subtitle()
     local input = vlc.object.input()
     if not input then return end
 
-    local curr_time = vlc.var.get(input, "time")
+    local curr_time = get_vlc_time(input)
 
     g_subtitles:move(curr_time)
 
@@ -505,7 +510,7 @@ function subtitle_again()
     local input = vlc.object.input()
     if not input then return end
 
-    local current_time = vlc.var.get(input, "time")
+    local current_time = get_vlc_time(input)
 
     playback_pause()
     g_paused_by_btn_again = true
@@ -520,7 +525,7 @@ function subtitle_save()
     local input = vlc.object.input()
     if not input then return end
 
-    g_subtitles:move(vlc.var.get(input, "time"))
+    g_subtitles:move(get_vlc_time(input))
 
     local curr_subtitle = g_subtitles:get_current()
     if curr_subtitle then
@@ -878,7 +883,7 @@ end
 
 function playback_goto(input, time)
     if input and time then
-        vlc.var.set(input, "time", time)
+        vlc.var.set(input, "time", time - sia_settings.time_shift)
     end
 end
 
