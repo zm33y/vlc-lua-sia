@@ -68,7 +68,7 @@ local sia_settings =
     key_next_subt = 117, -- u
     key_again = 8, -- backspace
     key_save = 105, -- i
-    time_shift = 1.5
+    time_shift = 1.5 -- global time shift to compensate vlc audio start delay
 }
 
 
