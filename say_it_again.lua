@@ -85,19 +85,7 @@ local g_words_file = nil
 local g_callbacks_set = false
 local g_current_dialog = nil
 local g_found_dicts = {}
-
-local g_subtitles = {
-    path = nil,
-    loaded = false,
-    currents = {}, -- indexes of current subtitles
-
-    prev_time = nil, -- start time of previous subtitle
-    begin_time = nil, -- start time of current subtitle
-    end_time = nil, -- end time of current subtitle
-    next_time = nil, -- next subtitle start time
-
-    subtitles = {} -- contains all the subtitles
-}
+local g_subtitles = nil
 
 local g_dict = {
     loaded = false,
@@ -202,6 +190,7 @@ function activate()
 
     --TODO consider this
     if vlc.object.input() then
+        g_subtitles = Subtitles.create()
         local loaded, msg = g_subtitles:load(get_subtitles_path())
         if not loaded then
             log(msg)
@@ -278,7 +267,29 @@ function g_ignored_words:contains(word)
     return false
 end
 
-function g_subtitles:load(spath)
+Subtitles = {}
+Subtitles.__index = Subtitles
+
+function Subtitles.create()
+  local o = 
+  {
+      path = nil,
+      loaded = false,
+      currents = {}, -- indexes of current subtitles
+
+      prev_time = nil, -- start time of previous subtitle
+      begin_time = nil, -- start time of current subtitle
+      end_time = nil, -- end time of current subtitle
+      next_time = nil, -- next subtitle start time
+
+      subtitles = {} -- contains all the subtitles
+  }    
+  
+  setmetatable(o, Subtitles)
+  return o
+end
+
+function Subtitles:load(spath)
     self.loaded = false
 
     if is_nil_or_empty(spath) then return false, "cant load subtitles: path is nil" end
@@ -313,7 +324,7 @@ function g_subtitles:load(spath)
     return true
 end
 
-function g_subtitles:get_prev_time(time)
+function Subtitles:get_prev_time(time)
     local epsilon = 0.8 -- sec -- TODO to settings!
     if time < self.begin_time + epsilon or #self.currents == 0 then
         return self.prev_time
@@ -322,27 +333,27 @@ function g_subtitles:get_prev_time(time)
     end
 end
 
-function g_subtitles:get_next_time(time)
+function Subtitles:get_next_time(time)
     return self.next_time
 end
 
-function g_subtitles:get_by_delta(delta)
+function Subtitles:get_by_delta(delta)
    return filter_html(self.currents[1] and
         self.subtitles[self.currents[1]+delta] and
         self.subtitles[self.currents[1]+delta][3])
 end
 
 -- works only if there is current subtitle!
-function g_subtitles:get_previous()
+function Subtitles:get_previous()
     return self:get_by_delta(-1)
 end
 
 -- works only if there is current subtitle!
-function g_subtitles:get_next()
+function Subtitles:get_next()
     return self:get_by_delta(1)
 end
 
-function g_subtitles:get_current()
+function Subtitles:get_current()
     if #self.currents == 0 then return nil end
 
     local subtitle = ""
@@ -357,7 +368,7 @@ function g_subtitles:get_current()
 end
 
 -- returns false if time is withing current subtitle
-function g_subtitles:move(time)
+function Subtitles:move(time)
     if self.begin_time and self.end_time and self.begin_time <= time and time <= self.end_time then
         --log("same title")
         return false, self:get_current(), self.end_time-time
@@ -365,24 +376,24 @@ function g_subtitles:move(time)
     
     self:_fill_currents(time)
 
-    --g_subtitles:log(time)
+    --self:log(time)
 
     return true, self:get_current(), self.end_time and self.end_time-time or 0
 end
 
-function g_subtitles:log(cur_time)
+function Subtitles:log(cur_time)
         log("________________________________________________")
         log("prev\tbegin\tcurr\tend\tnext")
         log(tostring(self.prev_time or "----").."\t"..tostring(self.begin_time or "----").."\t"..
                 tostring(cur_time or "----").."\t"..tostring(self.end_time or "----")..
                 "\t"..tostring(self.next_time or "----"))
         log("nesting: " .. #self.currents)
-        log("titre:" .. (g_subtitles:get_current() or "nil"))
+        log("titre:" .. (self:get_current() or "nil"))
         log("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 end
 
 -- private
-function g_subtitles:_fill_currents(time)
+function Subtitles:_fill_currents(time)
     self.currents = {} -- there might be several current overlapping subtitles
     self.prev_time = nil
     self.begin_time = nil
