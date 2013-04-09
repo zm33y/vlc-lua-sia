@@ -71,8 +71,9 @@ local sia_settings =
     key_again = 8, -- backspace
     key_save = 105, -- i
     key_enable_second_lang = 67108872, -- ctrl + backspace
+    key_always_show_subs = 114, -- R
     
-    time_shift = 1.5 -- global time shift to compensate vlc audio start delay
+    time_shift = 2 -- global time shift to compensate vlc audio start delay
 }
 
 
@@ -163,6 +164,7 @@ function descriptor()
  -- Word translation and export to Anki (together with context and transcription) - key <b>[i]</b><br />
  -- "Again": go to previous phrase, show subtitle and pause video - key <b>[backspace]</b><br /> 
  -- Ability to use two subtitles languages simultaneously - key <b>[ctrl+backspace]</b><br />
+ -- Ability to always show subtitles - key <b>[R]</b><br />
 </html>]],
         capabilities = {"input-listener", "menu"}
     }
@@ -495,9 +497,12 @@ function input_events_handler(var, old, new, data)
     -- if the video was paused by 'again!' button (backspace by default)
     --  then restore initial g_osd_enabled state
     if g_paused_by_btn_again and vlc.playlist.status() ~= "paused" then
-        g_paused_by_btn_again = false
-        g_second_lang_enabled = false
+        g_paused_by_btn_again = false 
         g_osd_enabled = sia_settings.always_show_subtitles
+        
+        if not sia_settings.always_show_subtitles then
+            g_second_lang_enabled = false
+        end    
     end
 
     subtitle = ""
@@ -519,7 +524,7 @@ function input_events_handler(var, old, new, data)
 end
 
 function key_pressed_handler(var, old, new, data)
-    log("var: "..tostring(var).."; old: "..tostring(old).."; new: "..tostring(new).."; data: "..tostring(data))
+    --log("var: "..tostring(var).."; old: "..tostring(old).."; new: "..tostring(new).."; data: "..tostring(data))
     if new == sia_settings.key_prev_subt then
         goto_prev_subtitle()
     elseif new == sia_settings.key_next_subt then
@@ -530,7 +535,8 @@ function key_pressed_handler(var, old, new, data)
         subtitle_save()
     elseif new == sia_settings.key_enable_second_lang then
         enable_second_lang()
-    else
+    elseif new == sia_settings.key_always_show_subs then
+        always_show_subs()
     end
 end
 
@@ -575,6 +581,11 @@ function enable_second_lang()
     g_second_lang_enabled = not g_second_lang_enabled;
 end
 
+function always_show_subs()
+    sia_settings.always_show_subtitles = not sia_settings.always_show_subtitles;
+    g_osd_enabled = sia_settings.always_show_subtitles;
+end
+
 function subtitle_save()
     local input = vlc.object.input()
     if not input then return end
@@ -602,7 +613,7 @@ function gui_show_osd_help()
     vlc.osd.message("!!! Press [v] to disable subtitles !!!", vlc.osd.channel_register(), "top", duration/2)
     vlc.osd.message("[y] - previous\n       phrase", vlc.osd.channel_register(), "left", duration)
     vlc.osd.message("[u] - next    \nphrase", vlc.osd.channel_register(), "right", duration)
-    vlc.osd.message("[i] - save\n\n[backspace] - again!\n\n[ctrl+backspace] - second language", vlc.osd.channel_register(), "center", duration)
+    vlc.osd.message("[i] - save\n\n[backspace] - again!\n\n[ctrl+backspace] - second language\n\n[r] - always show subtitles", vlc.osd.channel_register(), "center", duration)
 end
 
 function gui_def2str(list)
