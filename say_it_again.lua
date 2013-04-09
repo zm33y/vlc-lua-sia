@@ -54,13 +54,14 @@ Abbreviations used in code:
 --[[  Settings  ]]--
 local sia_settings =
 {
-    charset = "iso-8859-1",          -- works for english and french subtitles (try also "Windows-1252")
+    --charset = "iso-8859-1",          -- works for english and french subtitles (try also "Windows-1252")
+    charset = nil,          -- works for english and french subtitles (try also "Windows-1252")
     dict_dir = "c:/!MY_DOCS/say_it_again/dict",            -- where Stardict dictionaries are located
     wordnet_dir = "c:/!MY_DOCS/say_it_again/WordNet", -- where WordNet files are located
     --chosen_dict = "c:/!MY_DOCS/say_it_again/dict/Oxford Advanced Learner's Dictionary", -- Stardict dictionary used by default (there should be 3 files with this name but different extensions)
     chosen_dict = "c:/!MY_DOCS/say_it_again/dict/OxfordAmericanDictionaryEnEn", -- Stardict dictionary used by default (there should be 3 files with this name but different extensions)
     words_file_path = "c:/!MY_DOCS/say_it_again/sia_words.txt", -- if 'nil' then "Desktop/sia_words.txt" will be used
-    always_show_subtitles = false,
+    always_show_subtitles = true,
     osd_position = "top",
     help_duration = 6, -- sec; change to nil to disable osd help
     log_enable = true, -- Logs can be viewed in the console (Ctrl-M)
@@ -86,6 +87,7 @@ local g_callbacks_set = false
 local g_current_dialog = nil
 local g_found_dicts = {}
 local g_subtitles = nil
+local g_subtitles_native = nil
 
 local g_dict = {
     loaded = false,
@@ -191,11 +193,20 @@ function activate()
     --TODO consider this
     if vlc.object.input() then
         g_subtitles = Subtitles.create()
+        g_subtitles_native = Subtitles.create()
+        
         local loaded, msg = g_subtitles:load(get_subtitles_path())
         if not loaded then
             log(msg)
             return
         end
+        
+        local loaded, msg = g_subtitles_native:load(get_subtitles_native_path())
+        if not loaded then
+            log(msg)
+            return
+        end
+       
         g_osd_channel = vlc.osd.channel_register()
         gui_show_osd_help()
         g_osd_enabled = sia_settings.always_show_subtitles
@@ -480,8 +491,22 @@ function input_events_handler(var, old, new, data)
         g_osd_enabled = sia_settings.always_show_subtitles
     end
 
-    local _, subtitle, duration = g_subtitles:move(current_time)
-
+    subtitle = ""
+    duration = 0
+    
+    local _, subtitle_f, duration_f = g_subtitles:move(current_time)
+    local _, subtitle_n, duration_n = g_subtitles_native:move(current_time)
+    
+   if subtitle_f and duration_f then
+        subtitle = subtitle_f
+        duration = duration_f
+    end
+    
+    if subtitle_n and duration_n then
+        subtitle = subtitle .. "\n\n" .. subtitle_n
+        duration = math.max(duration, duration_n)
+    end
+   
     osd_show(subtitle, duration)
 end
 
@@ -884,14 +909,22 @@ function is_unix_platform()
     end
 end
 
-function get_subtitles_path()
+function get_subtitles_path_impl(ext)
     local item = get_input_item()
     if not item then return "" end
 
     local path_to_video = uri_to_path(vlc.strings.decode_uri(item:uri()), is_unix_platform())
     log(path_to_video)
 
-    return path_to_video:gsub("[^.]*$", "") .. "srt"
+    return path_to_video:gsub("\.[^.]*$", ext)
+end
+
+function get_subtitles_path()
+    return get_subtitles_path_impl( ".srt" )
+end
+
+function get_subtitles_native_path()
+    return get_subtitles_path_impl( "_2.srt" )
 end
 
 function filter_html(str)
