@@ -68,6 +68,7 @@ local sia_settings =
     key_next_subt = 117, -- u
     key_again = 8, -- backspace
     key_save = 105, -- i
+    time_shift = 0 -- global time shift to compensate vlc audio start delay
 }
 
 
@@ -324,18 +325,20 @@ function g_subtitles:get_next_time(time)
     return self.next_time
 end
 
+function g_subtitles:get_by_delta(delta)
+   return filter_html(self.currents[1] and
+        self.subtitles[self.currents[1]+delta] and
+        self.subtitles[self.currents[1]+delta][3])
+end
+
 -- works only if there is current subtitle!
 function g_subtitles:get_previous()
-    return filter_html(self.currents[1] and
-        self.subtitles[self.currents[1]-1] and
-        self.subtitles[self.currents[1]-1][3])
+    return self:get_by_delta(-1)
 end
 
 -- works only if there is current subtitle!
 function g_subtitles:get_next()
-    return filter_html(self.currents[#self.currents] and
-        self.subtitles[self.currents[#self.currents]+1] and
-        self.subtitles[self.currents[#self.currents]+1][3])
+    return self:get_by_delta(1)
 end
 
 function g_subtitles:get_current()
@@ -445,6 +448,10 @@ function change_callbacks()
     end
 end
 
+function get_vlc_time(input)
+  return vlc.var.get(input, "time") + sia_settings.time_shift
+end
+
 function input_events_handler(var, old, new, data)
 
     -- listen to input events only to show subtitles
@@ -452,7 +459,7 @@ function input_events_handler(var, old, new, data)
 
     -- get current time
     local input = vlc.object.input()
-    local current_time = vlc.var.get(input, "time")
+    local current_time = get_vlc_time(input)
 
     -- if the video was paused by 'again!' button (backspace by default)
     --  then restore initial g_osd_enabled state
@@ -483,7 +490,7 @@ function goto_prev_subtitle()
     local input = vlc.object.input()
     if not input then return end
 
-    local curr_time = vlc.var.get(input, "time")
+    local curr_time = get_vlc_time(input)
 
     g_subtitles:move(curr_time)
 
@@ -494,7 +501,7 @@ function goto_next_subtitle()
     local input = vlc.object.input()
     if not input then return end
 
-    local curr_time = vlc.var.get(input, "time")
+    local curr_time = get_vlc_time(input)
 
     g_subtitles:move(curr_time)
 
@@ -505,7 +512,7 @@ function subtitle_again()
     local input = vlc.object.input()
     if not input then return end
 
-    local current_time = vlc.var.get(input, "time")
+    local current_time = get_vlc_time(input)
 
     playback_pause()
     g_paused_by_btn_again = true
@@ -520,7 +527,7 @@ function subtitle_save()
     local input = vlc.object.input()
     if not input then return end
 
-    g_subtitles:move(vlc.var.get(input, "time"))
+    g_subtitles:move(get_vlc_time(input))
 
     local curr_subtitle = g_subtitles:get_current()
     if curr_subtitle then
@@ -635,10 +642,10 @@ end
 function gui_create_dialog_save_word()
     g_dlg.w.lbl_context = g_dlg.dlg:add_label("<b>1. Edit<br />context:</b>",1,1,1,3)
     g_dlg.w.lbl_prev_s = g_dlg.dlg:add_label("",2,1,8,1)
-    g_dlg.w.btn_add_prev =g_dlg.dlg:add_button("+", function() g_dlg.w.tb_curr_s:set_text(g_subtitles:get_previous() .. " " .. g_dlg.w.tb_curr_s:get_text()) end, 10,1,1,1)
+    g_dlg.w.btn_add_prev =g_dlg.dlg:add_button("<<<", gui_add_prev_sub, 10,1,1,1)
     g_dlg.w.tb_curr_s = g_dlg.dlg:add_text_input("",2,2,9,1)
     g_dlg.w.lbl_next_s = g_dlg.dlg:add_label("",2,3,8,1)
-    g_dlg.w.btn_add_next =g_dlg.dlg:add_button("+", function() g_dlg.w.tb_curr_s:set_text(g_dlg.w.tb_curr_s:get_text() .. " " .. g_subtitles:get_next()) end, 10,3,1,1)
+    g_dlg.w.btn_add_next =g_dlg.dlg:add_button(">>>", gui_add_next_sub, 10,3,1,1)
 
     g_dlg.w.lbl_add_word = g_dlg.dlg:add_label("<br /><b>2. Choose a word to look it up:</b>",1,4,10,1)
     -- (words buttons here)
@@ -654,6 +661,18 @@ function gui_create_dialog_save_word()
 
     g_dlg.w.lbl_file = g_dlg.dlg:add_label("File '" .. (sia_settings.words_file_path or "n/a") .. "':",11,1,4,1)
     g_dlg.w.list_file = g_dlg.dlg:add_list(11, 2, 4, 18)
+end
+
+function gui_add_prev_sub()
+  g_dlg.w.tb_curr_s:set_text(g_subtitles:get_by_delta(g_dlg.prev_sub_diff) .. " " .. g_dlg.w.tb_curr_s:get_text())
+  g_dlg.prev_sub_diff = g_dlg.prev_sub_diff - 1
+  g_dlg.w.lbl_prev_s:set_text("<font color='grey'>" .. g_subtitles:get_by_delta(g_dlg.prev_sub_diff) .. "</font>")
+end
+
+function gui_add_next_sub()
+  g_dlg.w.tb_curr_s:set_text(g_dlg.w.tb_curr_s:get_text() .. " " .. g_subtitles:get_by_delta(g_dlg.next_sub_diff))
+  g_dlg.next_sub_diff = g_dlg.next_sub_diff + 1
+  g_dlg.w.lbl_next_s:set_text("<font color='grey'>" .. g_subtitles:get_by_delta(g_dlg.next_sub_diff) .. "</font>")
 end
 
 function gui_show_dialog_save_word(curr_subtitle)
@@ -673,9 +692,12 @@ function gui_show_dialog_save_word(curr_subtitle)
         gui_del_words_buttons()
     end
 
-    g_dlg.w.lbl_prev_s:set_text("<font color='grey'>" .. g_subtitles:get_previous() .. "</font>")
+    g_dlg.prev_sub_diff = 0
+    g_dlg.next_sub_diff = 0
+    
+    gui_add_prev_sub()
+    gui_add_next_sub()
     g_dlg.w.tb_curr_s:set_text(curr_subtitle)
-    g_dlg.w.lbl_next_s:set_text("<font color='grey'>" .. g_subtitles:get_next() .. "</font>")
 
     g_dlg.btns = gui_get_words_buttons(curr_subtitle, 5)
     
@@ -878,7 +900,7 @@ end
 
 function playback_goto(input, time)
     if input and time then
-        vlc.var.set(input, "time", time)
+        vlc.var.set(input, "time", time - sia_settings.time_shift)
     end
 end
 
