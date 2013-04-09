@@ -317,6 +317,10 @@ function Subtitles:load(spath)
  
     data = data:gsub("\r\n", "\n") -- fixes issues with Linux
     local srt_pattern = "(%d%d):(%d%d):(%d%d),(%d%d%d) %-%-> (%d%d):(%d%d):(%d%d),(%d%d%d).-\n(.-)\n\n"
+    
+    -- Special record for calculation simplicity 
+    table.insert(self.subtitles, {to_sec(0, 0, 0, 0), to_sec(0, 0, 0, 0), ">>> START <<<"})
+    
     for h1, m1, s1, ms1, h2, m2, s2, ms2, text in string.gmatch(data, srt_pattern) do
         if not is_nil_or_empty(text) then
             if sia_settings.charset then
@@ -325,8 +329,11 @@ function Subtitles:load(spath)
             table.insert(self.subtitles, {to_sec(h1, m1, s1, ms1), to_sec(h2, m2, s2, ms2), text})
         end
     end
+    
+    -- Special record for calculation simplicity
+    table.insert(self.subtitles, {to_sec(100, 0, 0, 0), to_sec(100, 0, 0, 0), ">>> END <<<"})
 
-    if #self.subtitles==0 then return false, "cant load subtitles: could not parse" end
+    if #self.subtitles == 2 then return false, "cant load subtitles: could not parse" end
 
     self.loaded = true
 
@@ -379,65 +386,62 @@ function Subtitles:get_current()
 end
 
 -- returns false if time is withing current subtitle
-function Subtitles:move(time)
-    if self.begin_time and self.end_time and self.begin_time <= time and time <= self.end_time then
-        --log("same title")
-        return false, self:get_current(), self.end_time-time
+function Subtitles:move(time_beg, time_end)
+    time_end = time_end or time_beg   
+
+    if self.begin_time and self.end_time and time_beg >= self.begin_time and time_end <= self.end_time then
+        return false, self:get_current(), self.end_time-time_beg
     end
     
-    self:_fill_currents(time)
+    self:_fill_currents(time_beg, time_end)
 
-    --self:log(time)
-
-    return true, self:get_current(), self.end_time and self.end_time-time or 0
+    return true, self:get_current(), self.end_time and self.end_time-time_beg or 0
 end
 
-function Subtitles:log(cur_time)
-        log("________________________________________________")
-        log("prev\tbegin\tcurr\tend\tnext")
-        log(tostring(self.prev_time or "----").."\t"..tostring(self.begin_time or "----").."\t"..
-                tostring(cur_time or "----").."\t"..tostring(self.end_time or "----")..
-                "\t"..tostring(self.next_time or "----"))
-        log("nesting: " .. #self.currents)
-        log("titre:" .. (self:get_current() or "nil"))
-        log("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+function tos( val )
+    return tostring(val or "nil")
 end
 
 -- private
-function Subtitles:_fill_currents(time)
+function Subtitles:_fill_currents(time_beg, time_end)
     self.currents = {} -- there might be several current overlapping subtitles
-    self.prev_time = nil
-    self.begin_time = nil
-    self.end_time = nil
-    self.next_time = nil
-
-    local last_checked = 0
-    for i = 1, #self.subtitles do
-        last_checked = i
-        if self.subtitles[i][1] <= time and time <= self.subtitles[i][2] then
-            self.prev_time = self.subtitles[i-1] and self.subtitles[i-1][1]
-            self.begin_time = self.subtitles[i][1]
-            self.end_time = math.min(self.subtitles[i+1] and self.subtitles[i+1][1] or 9999999, self.subtitles[i][2])
-            table.insert(self.currents, i)
+    
+    local first = 1
+    
+    while first < #self.subtitles and time_beg > self.subtitles[first][2] do
+        first = first + 1
+    end
+    
+    local last = first
+       
+    while last < #self.subtitles and time_end > self.subtitles[last][1] do
+        table.insert(self.currents, last)
+        last = last + 1   
+    end 
+    
+    self.prev_time = self.subtitles[first - 1][1]
+    self.next_time = self.subtitles[last][1]
+    
+    if first ~= last then        
+        self.begin_time = math.min( self.subtitles[first][1], time_beg )
+        self.end_time = math.max( self.subtitles[last - 1][2], time_end )
+    else
+        self.begin_time = self.subtitles[first - 1][2]
+        self.end_time = self.subtitles[last][1]
+    end
+      
+    local function dbgprint()  
+        log("________________________________________________")
+        log("request\t["..tos(time_beg)..","..tos(time_end)..")")
+        log(tos(self.prev_time).."\t["..tos(self.begin_time)..","..tos(self.end_time).."]\t"..tos(self.next_time))
+        for _, cur in ipairs(self.currents) do
+            log("   ["..tos(self.subtitles[cur][1])..","..tos(self.subtitles[cur][2]).."]: "..tos(self.subtitles[cur][3]))
         end
-        if self.subtitles[i][1] > time then
-            self.next_time = self.subtitles[i][1]
-            break
-        end
+        log("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
     end
 
-    -- if there are no current subtitles
-    if #self.currents == 0 then
-        self.prev_time = self.subtitles[last_checked-1] and self.subtitles[last_checked-1][1]
-        self.begin_time = self.subtitles[last_checked-1] and self.subtitles[last_checked-1][2] or 0
-        if last_checked < #self.subtitles then
-            self.end_time = self.subtitles[last_checked] and self.subtitles[last_checked][1]
-        else
-            self.end_time = nil -- no end time after the last subtitle
-        end
-        self.next_time = self.end_time
-    end
-end
+    --dbgprint()
+ end
 
 function add_intf_callback()
     if vlc.object.input() then
@@ -495,18 +499,17 @@ function input_events_handler(var, old, new, data)
     duration = 0
     
     local _, subtitle_f, duration_f = g_subtitles:move(current_time)
-    local _, subtitle_n, duration_n = g_subtitles_native:move(current_time)
     
-   if subtitle_f and duration_f then
+    if subtitle_f and duration_f then
         subtitle = subtitle_f
-        duration = duration_f
+        duration = duration_f      
+        local _, subtitle_n, duration_n = g_subtitles_native:move(g_subtitles.begin_time, g_subtitles.end_time)
+        
+        if subtitle_n and duration_n then
+            subtitle = subtitle .. "\n\n" .. subtitle_n
+        end
     end
     
-    if subtitle_n and duration_n then
-        subtitle = subtitle .. "\n\n" .. subtitle_n
-        duration = math.max(duration, duration_n)
-    end
-   
     osd_show(subtitle, duration)
 end
 
