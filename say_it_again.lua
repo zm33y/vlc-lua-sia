@@ -754,7 +754,7 @@ function gui_save_word()
     local context = string.gsub(g_dlg.w.tb_curr_s:get_text(), "\n", " ") or ""
     local tags = get_title() or ""
 
-    local res = word .. "\t" .. transcription .. "\t" .. def .. "\t" .. context .. "\t\t" .. tags
+    local res = context .. "\t" .. word .. "\t" .. transcription .. "\t" .. def
     
     g_dlg.w.tb_def:set_text("") -- clear custom definition
 
