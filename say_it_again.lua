@@ -349,8 +349,11 @@ function Subtitles:load(spath)
 end
 
 function Subtitles:get_prev_time(time)
-    local epsilon = 0.8 -- sec -- TODO to settings!
-    if time < self.begin_time + epsilon or #self.currents == 0 then
+    local point_of_replay = self.begin_time + math.max( (self.end_time - self.begin_time) / 3, 0.8 )
+    
+    -- log( tos(time).." < "..tos(point_of_replay).."\t"..tos(point_of_replay - self.begin_time).."\t"..tos(point_of_replay - time) )
+    
+    if #self.currents == 0 or time < point_of_replay then
         return self.prev_time
     else
         return self.begin_time
