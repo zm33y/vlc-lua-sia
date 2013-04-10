@@ -511,17 +511,12 @@ function input_events_handler(var, old, new, data)
         end    
     end
 
-    subtitle = ""
-    duration = 0
+    local _, subtitle, duration = g_subtitles:move(current_time)
     
-    local _, subtitle_f, duration_f = g_subtitles:move(current_time)
-    
-    if subtitle_f and duration_f then
-        subtitle = subtitle_f
-        duration = duration_f      
+    if g_second_lang_enabled and subtitle and subtitle then     
         local _, subtitle_n, duration_n = g_subtitles_native:move(g_subtitles.begin_time, g_subtitles.end_time)
         
-        if g_second_lang_enabled and subtitle_n and duration_n then
+        if subtitle_n and duration_n then
             subtitle = subtitle .. "\n\n" .. subtitle_n
         end
     end
@@ -584,7 +579,9 @@ function subtitle_again()
 end
 
 function enable_second_lang()
-    g_second_lang_enabled = not g_second_lang_enabled;
+    if g_subtitles_native.loaded then
+        g_second_lang_enabled = not g_second_lang_enabled;
+    end
 end
 
 function always_show_subs()
@@ -709,37 +706,48 @@ function gui_update_list_dicts()
 end
 
 function gui_create_dialog_save_word()
-    g_dlg.w.lbl_context = g_dlg.dlg:add_label("<b>1. Edit<br />context:</b>",1,1,1,3)
-    g_dlg.w.lbl_prev_s = g_dlg.dlg:add_label("",2,1,8,1)
-    g_dlg.w.btn_add_prev =g_dlg.dlg:add_button("<<<", gui_add_prev_sub, 10,1,1,1)
-    g_dlg.w.tb_curr_s = g_dlg.dlg:add_text_input("",2,2,9,1)
-    g_dlg.w.lbl_next_s = g_dlg.dlg:add_label("",2,3,8,1)
-    g_dlg.w.btn_add_next =g_dlg.dlg:add_button(">>>", gui_add_next_sub, 10,3,1,1)
+    g_dlg.w.lbl_context = g_dlg.dlg:add_label("<b>1. Edit<br />context:</b>",1,1,1,4)
+    g_dlg.w.lbl_prev_s = g_dlg.dlg:add_label("",3,1,12,1)
+    g_dlg.w.btn_add_prev =g_dlg.dlg:add_button("<<<", gui_add_prev_sub, 2,1,1,1)
+    g_dlg.w.tb_curr_s = g_dlg.dlg:add_text_input("",2,2,13,1)
+    g_dlg.w.tb_curr_s2 = g_dlg.dlg:add_text_input("",2,3,13,1)
+    g_dlg.w.lbl_next_s = g_dlg.dlg:add_label("",3,4,12,1)
+    g_dlg.w.btn_add_next =g_dlg.dlg:add_button(">>>", gui_add_next_sub, 2,4,1,1)
 
-    g_dlg.w.lbl_add_word = g_dlg.dlg:add_label("<br /><b>2. Choose a word to look it up:</b>",1,4,10,1)
+    g_dlg.w.lbl_add_word = g_dlg.dlg:add_label("<b>2. Choose a word to look it up:</b>",1,5,10,1)
     -- (words buttons here)
-    g_dlg.w.lbl_or_enter = g_dlg.dlg:add_label("or enter:",1,9,1,1)
-    g_dlg.w.tb_word = g_dlg.dlg:add_text_input("",2,9,8,1)
-    g_dlg.w.btn_lookup =g_dlg.dlg:add_button("look up", gui_lookup_word, 10, 9, 1, 1)
-    g_dlg.w.lbl_choose_def = g_dlg.dlg:add_label("<b>3. Choose appropriate definition(s):</b>",1,10,10,1)
-    g_dlg.w.list_def = g_dlg.dlg:add_list(1, 11, 10, 10)
+    g_dlg.w.lbl_or_enter = g_dlg.dlg:add_label("or enter:",1,10,1,1)
+    g_dlg.w.tb_word = g_dlg.dlg:add_text_input("",2,10,8,1)
+    g_dlg.w.btn_lookup =g_dlg.dlg:add_button("look up", gui_lookup_word, 10, 10, 1, 1)
+    g_dlg.w.lbl_choose_def = g_dlg.dlg:add_label("<b>3. Choose appropriate definition(s):</b>",1,11,10,1)
+    g_dlg.w.list_def = g_dlg.dlg:add_list(1, 12, 10, 10)
 
-    g_dlg.w.btn_get_tr = g_dlg.dlg:add_button("edit def", function() g_dlg.w.tb_def:set_text(gui_def2str(g_dlg.w.list_def:get_selection())) end, 1, 21, 1, 1)
-    g_dlg.w.tb_def = g_dlg.dlg:add_text_input("",2,21,8,1)
-    g_dlg.w.btn_save = g_dlg.dlg:add_button("SAVE >>>", gui_save_word, 10, 21, 1, 1)
+    g_dlg.w.btn_get_tr = g_dlg.dlg:add_button("edit def", function() g_dlg.w.tb_def:set_text(gui_def2str(g_dlg.w.list_def:get_selection())) end, 1, 22, 1, 1)
+    g_dlg.w.tb_def = g_dlg.dlg:add_text_input("",2,22,8,1)
+    g_dlg.w.btn_save = g_dlg.dlg:add_button("SAVE >>>", gui_save_word, 10, 22, 1, 1)
 
-    g_dlg.w.lbl_file = g_dlg.dlg:add_label("File '" .. (sia_settings.words_file_path or "n/a") .. "':",11,1,4,1)
-    g_dlg.w.list_file = g_dlg.dlg:add_list(11, 2, 4, 18)
+    g_dlg.w.lbl_file = g_dlg.dlg:add_label("File '" .. (sia_settings.words_file_path or "n/a") .. "':",11,5,4,1)
+    g_dlg.w.list_file = g_dlg.dlg:add_list(11, 6, 4, 18)
 end
 
 function gui_add_prev_sub()
   g_dlg.w.tb_curr_s:set_text(g_subtitles:get_by_delta(g_dlg.prev_sub_diff) .. " " .. g_dlg.w.tb_curr_s:get_text())
+  
+  if g_second_lang_enabled then
+     g_dlg.w.tb_curr_s2:set_text(g_subtitles_native:get_by_delta(g_dlg.prev_sub_diff) .. " " .. g_dlg.w.tb_curr_s2:get_text())
+  end
+  
   g_dlg.prev_sub_diff = g_dlg.prev_sub_diff - 1
   g_dlg.w.lbl_prev_s:set_text("<font color='grey'>" .. g_subtitles:get_by_delta(g_dlg.prev_sub_diff) .. "</font>")
 end
 
 function gui_add_next_sub()
   g_dlg.w.tb_curr_s:set_text(g_dlg.w.tb_curr_s:get_text() .. " " .. g_subtitles:get_by_delta(g_dlg.next_sub_diff))
+  
+  if g_second_lang_enabled then
+     g_dlg.w.tb_curr_s2:set_text(g_dlg.w.tb_curr_s2:get_text() .. " " .. g_subtitles_native:get_by_delta(g_dlg.next_sub_diff))
+  end
+  
   g_dlg.next_sub_diff = g_dlg.next_sub_diff + 1
   g_dlg.w.lbl_next_s:set_text("<font color='grey'>" .. g_subtitles:get_by_delta(g_dlg.next_sub_diff) .. "</font>")
 end
@@ -767,8 +775,15 @@ function gui_show_dialog_save_word(curr_subtitle)
     gui_add_prev_sub()
     gui_add_next_sub()
     g_dlg.w.tb_curr_s:set_text(curr_subtitle)
+    g_dlg.w.tb_curr_s2:set_text( "" )
+    
+    local _, subtitle_n, _ = g_subtitles_native:move(g_subtitles.begin_time, g_subtitles.end_time)
+  
+    if g_second_lang_enabled and subtitle_n then
+        g_dlg.w.tb_curr_s2:set_text( subtitle_n )
+    end
 
-    g_dlg.btns = gui_get_words_buttons(curr_subtitle, 5)
+    g_dlg.btns = gui_get_words_buttons(curr_subtitle, 6)
     
     g_dlg.w.list_def:clear()
     g_dlg.w.list_file:clear()
@@ -836,11 +851,11 @@ function gui_save_word()
 
     local transcription = g_dlg.tr and ("["..g_dlg.tr.."]") or ""
 
-    
     local context = string.gsub(g_dlg.w.tb_curr_s:get_text(), "\n", " ") or ""
+    local context_n = string.gsub(g_dlg.w.tb_curr_s2:get_text(), "\n", " ") or ""
     local tags = get_title() or ""
 
-    local res = context .. "\t" .. word .. "\t" .. transcription .. "\t" .. def
+    local res = context .. "\t" .. context_n .. "\t" .. word .. "\t" .. transcription .. "\t" .. def
     
     g_dlg.w.tb_def:set_text("") -- clear custom definition
 
