@@ -746,7 +746,14 @@ function gui_add_prev_sub()
   end
   
   g_dlg.prev_sub_diff = g_dlg.prev_sub_diff - 1
-  g_dlg.w.lbl_prev_s:set_text("<font color='grey'>" .. g_subtitles:get_by_delta(g_dlg.prev_sub_diff) .. "</font>")
+  
+  local nextsub = g_subtitles:get_by_delta(g_dlg.prev_sub_diff)
+  
+  if g_second_lang_enabled then
+     nextsub = nextsub .. " / " .. g_subtitles_native:get_by_delta(g_dlg.prev_sub_diff)
+  end
+  
+  g_dlg.w.lbl_prev_s:set_text("<font color='grey'>" .. nextsub .. "</font>")
 end
 
 function gui_add_next_sub()
@@ -757,7 +764,14 @@ function gui_add_next_sub()
   end
   
   g_dlg.next_sub_diff = g_dlg.next_sub_diff + 1
-  g_dlg.w.lbl_next_s:set_text("<font color='grey'>" .. g_subtitles:get_by_delta(g_dlg.next_sub_diff) .. "</font>")
+  
+  local nextsub = g_subtitles:get_by_delta(g_dlg.next_sub_diff)
+  
+  if g_second_lang_enabled then
+     nextsub = nextsub .. " / " .. g_subtitles_native:get_by_delta(g_dlg.next_sub_diff)
+  end
+  
+  g_dlg.w.lbl_next_s:set_text("<font color='grey'>" .. nextsub .. "</font>")
 end
 
 function gui_show_dialog_save_word(curr_subtitle)
