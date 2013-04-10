@@ -210,7 +210,6 @@ function activate()
         local loaded, msg = g_subtitles_native:load(get_subtitles_native_path())
         if not loaded then
             log(msg)
-            return
         end
        
         g_osd_channel = vlc.osd.channel_register()
@@ -396,6 +395,10 @@ end
 
 -- returns false if time is withing current subtitle
 function Subtitles:move(time_beg, time_end)
+    if not self.loaded then
+        return false, "", 0
+    end 
+
     time_end = time_end or time_beg   
 
     if self.begin_time and self.end_time and time_beg >= self.begin_time and time_end <= self.end_time then
@@ -404,7 +407,7 @@ function Subtitles:move(time_beg, time_end)
     
     self:_fill_currents(time_beg, time_end)
 
-    return true, self:get_current(), self.end_time and self.end_time-time_beg or 0
+    return true, self:get_current(), self.end_time and self.end_time-time_beg
 end
 
 function tos( val )
