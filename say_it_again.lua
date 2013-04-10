@@ -325,7 +325,7 @@ function Subtitles:load(spath)
     local srt_pattern = "(%d%d):(%d%d):(%d%d),(%d%d%d) %-%-> (%d%d):(%d%d):(%d%d),(%d%d%d).-\n(.-)\n\n"
     
     -- Special record for calculation simplicity 
-    table.insert(self.subtitles, {to_sec(0, 0, 0, 0), to_sec(0, 0, 0, 0), ">>> START <<<"})
+    table.insert(self.subtitles, {to_sec(0, 0, 0, 0), to_sec(0, 0, 0, 0), "[START]"})
     
     for h1, m1, s1, ms1, h2, m2, s2, ms2, text in string.gmatch(data, srt_pattern) do
         if not is_nil_or_empty(text) then
@@ -337,7 +337,7 @@ function Subtitles:load(spath)
     end
     
     -- Special record for calculation simplicity
-    table.insert(self.subtitles, {to_sec(100, 0, 0, 0), to_sec(100, 0, 0, 0), ">>> END <<<"})
+    table.insert(self.subtitles, {to_sec(100, 0, 0, 0), to_sec(100, 0, 0, 0), "[END]"})
 
     if #self.subtitles == 2 then return false, "cant load subtitles: could not parse" end
 
@@ -709,11 +709,11 @@ end
 function gui_create_dialog_save_word()
     g_dlg.w.lbl_context = g_dlg.dlg:add_label("<b>1. Edit<br />context:</b>",1,1,1,4)
     g_dlg.w.lbl_prev_s = g_dlg.dlg:add_label("",3,1,12,1)
-    g_dlg.w.btn_add_prev =g_dlg.dlg:add_button("<<<", gui_add_prev_sub, 2,1,1,1)
+    g_dlg.w.btn_add_prev =g_dlg.dlg:add_button("|<--", gui_add_prev_sub, 2,1,1,1)
     g_dlg.w.tb_curr_s = g_dlg.dlg:add_text_input("",2,2,13,1)
     g_dlg.w.tb_curr_s2 = g_dlg.dlg:add_text_input("",2,3,13,1)
     g_dlg.w.lbl_next_s = g_dlg.dlg:add_label("",3,4,12,1)
-    g_dlg.w.btn_add_next =g_dlg.dlg:add_button(">>>", gui_add_next_sub, 2,4,1,1)
+    g_dlg.w.btn_add_next =g_dlg.dlg:add_button("-->|", gui_add_next_sub, 2,4,1,1)
 
     g_dlg.w.lbl_add_word = g_dlg.dlg:add_label("<b>2. Choose a word to look it up:</b>",1,5,10,1)
     -- (words buttons here)
