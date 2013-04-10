@@ -72,7 +72,7 @@ local sia_settings =
 
 
 --[[  Global variables (no midifications beyond this point) ]]--
-local g_version = "0.0.6"
+local g_version = "0.0.7"
 local g_ignored_words = {"and", "the", "that", "not", "with", "you"}
 
 local g_osd_enabled = false
@@ -769,7 +769,7 @@ function gui_get_words_buttons(subtitle, cur_line)
             if g_wordnet and g_wordnet.loaded then -- try to search for lemma
                 lemma = g_wordnet:get_lemma(word:lower())
             end
-            table.insert(btns, g_dlg.dlg:add_button(word, function() g_dlg.w.tb_word:set_text(lemma) gui_lookup_word() end, i, cur_line, 1, 1))
+            table.insert(btns, g_dlg.dlg:add_button(word, function() g_dlg.w.tb_def:set_text("") g_dlg.w.tb_word:set_text(lemma) gui_lookup_word() end, i, cur_line, 1, 1))
             i = i + 1
             if i > 10 then
                 cur_line = cur_line + 1
