@@ -417,7 +417,12 @@ end
 
 -- private
 function Subtitles:_fill_currents(time_beg, time_end)
-    self.currents = {} -- there might be several current overlapping subtitles
+    -- there might be several current overlapping subtitles
+    self.currents = {}
+    
+    -- temporary currents to prevent data duplication when 
+    -- this function is called in different threads
+    local currents = {} 
     
     local first = 1
     
@@ -428,9 +433,11 @@ function Subtitles:_fill_currents(time_beg, time_end)
     local last = first
        
     while last < #self.subtitles and time_end > self.subtitles[last][1] do
-        table.insert(self.currents, last)
+        table.insert(currents, last)
         last = last + 1   
     end 
+    
+    self.currents = currents
     
     self.prev_time = self.subtitles[first - 1][1]
     self.next_time = self.subtitles[last][1]
