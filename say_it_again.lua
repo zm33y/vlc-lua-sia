@@ -73,7 +73,8 @@ local sia_settings =
     key_enable_second_lang = 67108872, -- ctrl + backspace
     key_always_show_subs = 114, -- R
     
-    time_shift = 2 -- global time shift to compensate vlc audio start delay
+    -- global subtitles time shift to compensate vlc audio start delay or lack of subtitles synchronization
+    subs_time_shift = -2.5
 }
 
 
@@ -488,7 +489,7 @@ function change_callbacks()
 end
 
 function get_vlc_time(input)
-  return vlc.var.get(input, "time") + sia_settings.time_shift
+  return vlc.var.get(input, "time") - sia_settings.subs_time_shift
 end
 
 function input_events_handler(var, old, new, data)
@@ -992,7 +993,7 @@ end
 
 function playback_goto(input, time)
     if input and time then
-        vlc.var.set(input, "time", time - sia_settings.time_shift)
+        vlc.var.set(input, "time", time + sia_settings.subs_time_shift)
     end
 end
 
