@@ -73,9 +73,9 @@ local sia_settings =
 
 --[[  Global variables (no midifications beyond this point) ]]--
 local g_version = "0.0.8"
-local g_conf_path = vlc.config.configdir() .. "/" .. "say_it_again.config.lua"
 local g_ignored_words = {"and", "the", "that", "not", "with", "you"}
 
+local g_conf_path = nil
 local g_osd_enabled = false
 local g_osd_channel = nil
 local g_dlg = {}
@@ -177,6 +177,7 @@ end
 function activate()
     log("Activate")
 
+    g_conf_path = vlc.config.configdir() .. (is_unix_platform() and "/" or "\\") .. "say_it_again.config.lua"
     sia_settings:load()
 
     if vlc.object.input() and (sia_settings.chosen_dict or sia_settings.wordnet_dir) then
@@ -620,10 +621,12 @@ function gui_choose_dict()
 end
 
 function gui_create_dialog_settings()
-    g_dlg.w.lbl_found_dicts = g_dlg.dlg:add_label("",1,1,10,1)
-    g_dlg.w.list_dict = g_dlg.dlg:add_list(1, 2, 10, 5)
-    g_dlg.w.lbl_note = g_dlg.dlg:add_label("Dictionaries marked with '*' have known format",1,7,10,1)
-    g_dlg.w.btn_choose = g_dlg.dlg:add_button("Choose", gui_choose_dict, 5,8,2,1)
+    g_dlg.w.lbl_config_path = g_dlg.dlg:add_label("Config file path:",1,1,3,1)
+    g_dlg.w.tb_config_path = g_dlg.dlg:add_text_input(g_conf_path,4,1,7,1)
+    g_dlg.w.lbl_found_dicts = g_dlg.dlg:add_label("",1,2,10,1)
+    g_dlg.w.list_dict = g_dlg.dlg:add_list(1, 3, 10, 5)
+    g_dlg.w.lbl_note = g_dlg.dlg:add_label("Dictionaries marked with '*' have known format",1,8,10,1)
+    g_dlg.w.btn_choose = g_dlg.dlg:add_button("Choose", gui_choose_dict, 5,9,2,1)
 end
 
 function gui_show_dialog_settings()
