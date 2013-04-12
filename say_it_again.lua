@@ -610,8 +610,12 @@ end
 
 function gui_choose_dict()
     del_callbacks()
-    g_dict:load(gui_dict_from_list(g_found_dicts, g_dlg.w.list_dict:get_selection()))
-    gui_update_list_dicts()
+    local selected_dict = gui_dict_from_list(g_found_dicts, g_dlg.w.list_dict:get_selection())
+    if g_dict:load(selected_dict) then
+        gui_update_list_dicts()
+        sia_settings.chosen_dict = selected_dict
+        sia_settings:save()
+    end
     add_callbacks()
 end
 
