@@ -72,7 +72,8 @@ local sia_settings =
 
 
 --[[  Global variables (no midifications beyond this point) ]]--
-local g_version = "0.0.7"
+local g_version = "0.0.8"
+local g_conf_path = vlc.config.configdir() .. "/" .. "say_it_again.config.lua"
 local g_ignored_words = {"and", "the", "that", "not", "with", "you"}
 
 local g_osd_enabled = false
@@ -176,6 +177,8 @@ end
 function activate()
     log("Activate")
 
+    sia_settings:load()
+
     if vlc.object.input() and (sia_settings.chosen_dict or sia_settings.wordnet_dir) then
         gui_show_osd_loading()
     end
@@ -266,6 +269,34 @@ end
 
 
 --[[  SIA Functions  ]]--
+
+function sia_settings:save()
+    local f, msg = io.open(g_conf_path, "w")
+    if not f then
+        log("Cant save config file: " .. (msg or "unknown error"))
+        return false
+    end
+
+    f:write("-- Say It Again configuration file\n")
+    f:write("return " .. table2str(self))
+    f:close()
+
+    return true
+end
+
+function sia_settings:load()
+    local userconf_f, msg = loadfile(g_conf_path)
+    if not userconf_f then
+        log("Cant load user config, saving default")
+        sia_settings:save()
+        return true
+    end
+
+    for k, v in pairs(userconf_f()) do self[k] = v end
+    print(self.dict_dir)
+
+    return true
+end
 
 function g_ignored_words:contains(word)
     for _, w in ipairs(self) do
@@ -921,6 +952,24 @@ end
 
 function is_nil_or_empty(str)
     return not str or str == ""
+end
+
+-- Represents a table as a string
+function table2str(tbl, level)
+    local res = "{\n"
+
+    for k,v in pairs(tbl) do
+        local vstr
+        if type(v) == "string" then vstr = string.format("%q", v)
+        elseif type(v) == "boolean" then vstr = v and "true" or "false"
+        elseif type(v) == "number" then vstr = v
+        elseif type(v) == "table" then vstr = table2str(v, (level or 1) + 1)
+        end
+
+        if vstr then res = res .. (string.rep("    ", level or 1) .. k .. " = " .. vstr .. ",\n") end
+    end
+
+    return res .. string.rep("    ", (level or 1) - 1) .. "}"
 end
 
 
