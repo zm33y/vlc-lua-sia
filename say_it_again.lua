@@ -552,7 +552,7 @@ function gui_def2str(list)
             res = res .. v .. sia_settings.definition_separator
         end
     end
-    return res:sub(1,-7)
+    return res:sub(1,-(sia_settings.definition_separator:len()+1))
 end
 
 function gui_dict_from_list(found_dicts, list)
