@@ -63,6 +63,7 @@ local sia_settings =
     osd_position = "top",
     help_duration = 6, -- sec; change to nil to disable osd help
     log_enable = true, -- Logs can be viewed in the console (Ctrl-M)
+    definition_separator = "<br />", -- separator used if multiple definitions are selected for saving
 
     key_prev_subt = 121, -- y
     key_next_subt = 117, -- u
@@ -582,10 +583,10 @@ function gui_def2str(list)
     local res = ""
     for k,v in pairs(list) do
         if k ~= 0 then -- do not add text 'no dict loaded'
-            res = res .. v .. "<br />"
+            res = res .. v .. sia_settings.definition_separator
         end
     end
-    return res:sub(1,-7)
+    return res:sub(1,-(sia_settings.definition_separator:len()+1))
 end
 
 function gui_dict_from_list(found_dicts, list)
