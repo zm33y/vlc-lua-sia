@@ -1,14 +1,12 @@
 #Say It Again#
 
-           \   /        Say It Again - a VLC extension
-     _______\_/______
-    | .------------. |  "Learn a language while watching TV"
-    | |~           | |
-    | | tvlang.com | |
-    | |            | |  =D.
-    | '------------' | _   )
-    |  ###### o o [] |/ `-'
-    '================'
+! Warning !
+---
+**This extension only works with VLC 2.0.5**
+
+Newer versions are not supported due to changes in Lua API (see this thread: https://mailman.videolan.org/pipermail/vlc-devel/2012-March/087553.html)
+
+**Mac OS version is not supported**
 
 Features
 ---
