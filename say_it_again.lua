@@ -55,6 +55,7 @@ Abbreviations used in code:
 local sia_settings =
 {
     charset = "iso-8859-1",          -- works for english and french subtitles (try also "Windows-1252")
+    --charset = nil,                 -- UTF8 encoding
     dict_dir = "C:/dict",            -- where Stardict dictionaries are located
     wordnet_dir = "C:/dict/wordnet", -- where WordNet files are located
     chosen_dict = "C:/dict/OxfordAmericanDictionaryEnEn", -- Stardict dictionary used by default (there should be 3 files with this name but different extensions)
@@ -69,6 +70,11 @@ local sia_settings =
     key_next_subt = 117, -- u
     key_again = 8, -- backspace
     key_save = 105, -- i
+    key_enable_second_lang = 67108872, -- ctrl + backspace
+    key_always_show_subs = 114, -- R
+    
+    -- global subtitles time shift to compensate vlc audio start delay or lack of subtitles synchronization
+    subs_time_shift = 0
 }
 
 
@@ -81,23 +87,13 @@ local g_osd_enabled = false
 local g_osd_channel = nil
 local g_dlg = {}
 local g_paused_by_btn_again = false
+local g_second_lang_enabled = false
 local g_words_file = nil
 local g_callbacks_set = false
 local g_current_dialog = nil
 local g_found_dicts = {}
-
-local g_subtitles = {
-    path = nil,
-    loaded = false,
-    currents = {}, -- indexes of current subtitles
-
-    prev_time = nil, -- start time of previous subtitle
-    begin_time = nil, -- start time of current subtitle
-    end_time = nil, -- end time of current subtitle
-    next_time = nil, -- next subtitle start time
-
-    subtitles = {} -- contains all the subtitles
-}
+local g_subtitles = nil
+local g_subtitles_native = nil
 
 local g_dict = {
     loaded = false,
@@ -168,7 +164,9 @@ function descriptor()
         description = [[<html>
  -- Phrases navigation (go to previous, next subtitle) - keys <b>[y]</b>, <b>[u]</b><br />
  -- Word translation and export to Anki (together with context and transcription) - key <b>[i]</b><br />
- -- "Again": go to previous phrase, show subtitle and pause video - key <b>[backspace]</b><br />
+ -- "Again": go to previous phrase, show subtitle and pause video - key <b>[backspace]</b><br /> 
+ -- Ability to use two subtitles languages simultaneously - key <b>[ctrl+backspace]</b><br />
+ -- Ability to always show subtitles - key <b>[R]</b><br />
 </html>]],
         capabilities = {"input-listener", "menu"}
     }
@@ -205,11 +203,20 @@ function activate()
 
     --TODO consider this
     if vlc.object.input() then
+        g_subtitles = Subtitles.create()
+        g_subtitles_native = Subtitles.create()
+        
         local loaded, msg = g_subtitles:load(get_subtitles_path())
         if not loaded then
             log(msg)
             return
         end
+        
+        local loaded, msg = g_subtitles_native:load(get_subtitles_native_path())
+        if not loaded then
+            log(msg)
+        end
+       
         g_osd_channel = vlc.osd.channel_register()
         gui_show_osd_help()
         g_osd_enabled = sia_settings.always_show_subtitles
@@ -309,7 +316,29 @@ function g_ignored_words:contains(word)
     return false
 end
 
-function g_subtitles:load(spath)
+Subtitles = {}
+Subtitles.__index = Subtitles
+
+function Subtitles.create()
+  local o = 
+  {
+      path = nil,
+      loaded = false,
+      currents = {}, -- indexes of current subtitles
+
+      prev_time = nil, -- start time of previous subtitle
+      begin_time = nil, -- start time of current subtitle
+      end_time = nil, -- end time of current subtitle
+      next_time = nil, -- next subtitle start time
+
+      subtitles = {} -- contains all the subtitles
+  }    
+  
+  setmetatable(o, Subtitles)
+  return o
+end
+
+function Subtitles:load(spath)
     self.loaded = false
 
     if is_nil_or_empty(spath) then return false, "cant load subtitles: path is nil" end
@@ -326,6 +355,10 @@ function g_subtitles:load(spath)
  
     data = data:gsub("\r\n", "\n") -- fixes issues with Linux
     local srt_pattern = "(%d%d):(%d%d):(%d%d),(%d%d%d) %-%-> (%d%d):(%d%d):(%d%d),(%d%d%d).-\n(.-)\n\n"
+    
+    -- Special record for calculation simplicity 
+    table.insert(self.subtitles, {to_sec(0, 0, 0, 0), to_sec(0, 0, 0, 0), "[START]"})
+    
     for h1, m1, s1, ms1, h2, m2, s2, ms2, text in string.gmatch(data, srt_pattern) do
         if not is_nil_or_empty(text) then
             if sia_settings.charset then
@@ -334,8 +367,11 @@ function g_subtitles:load(spath)
             table.insert(self.subtitles, {to_sec(h1, m1, s1, ms1), to_sec(h2, m2, s2, ms2), text})
         end
     end
+    
+    -- Special record for calculation simplicity
+    table.insert(self.subtitles, {to_sec(100, 0, 0, 0), to_sec(100, 0, 0, 0), "[END]"})
 
-    if #self.subtitles==0 then return false, "cant load subtitles: could not parse" end
+    if #self.subtitles == 2 then return false, "cant load subtitles: could not parse" end
 
     self.loaded = true
 
@@ -344,34 +380,39 @@ function g_subtitles:load(spath)
     return true
 end
 
-function g_subtitles:get_prev_time(time)
-    local epsilon = 0.8 -- sec -- TODO to settings!
-    if time < self.begin_time + epsilon or #self.currents == 0 then
+function Subtitles:get_prev_time(time)
+    local point_of_replay = self.begin_time + math.max( (self.end_time - self.begin_time) / 3, 0.8 )
+    
+    -- log( tos(time).." < "..tos(point_of_replay).."\t"..tos(point_of_replay - self.begin_time).."\t"..tos(point_of_replay - time) )
+    
+    if #self.currents == 0 or time < point_of_replay then
         return self.prev_time
     else
         return self.begin_time
     end
 end
 
-function g_subtitles:get_next_time(time)
+function Subtitles:get_next_time(time)
     return self.next_time
 end
 
--- works only if there is current subtitle!
-function g_subtitles:get_previous()
-    return filter_html(self.currents[1] and
-        self.subtitles[self.currents[1]-1] and
-        self.subtitles[self.currents[1]-1][3])
+function Subtitles:get_by_delta(delta)
+   return filter_html(self.currents[1] and
+        self.subtitles[self.currents[1]+delta] and
+        self.subtitles[self.currents[1]+delta][3])
 end
 
 -- works only if there is current subtitle!
-function g_subtitles:get_next()
-    return filter_html(self.currents[#self.currents] and
-        self.subtitles[self.currents[#self.currents]+1] and
-        self.subtitles[self.currents[#self.currents]+1][3])
+function Subtitles:get_previous()
+    return self:get_by_delta(-1)
 end
 
-function g_subtitles:get_current()
+-- works only if there is current subtitle!
+function Subtitles:get_next()
+    return self:get_by_delta(1)
+end
+
+function Subtitles:get_current()
     if #self.currents == 0 then return nil end
 
     local subtitle = ""
@@ -386,65 +427,73 @@ function g_subtitles:get_current()
 end
 
 -- returns false if time is withing current subtitle
-function g_subtitles:move(time)
-    if self.begin_time and self.end_time and self.begin_time <= time and time <= self.end_time then
-        --log("same title")
-        return false, self:get_current(), self.end_time-time
+function Subtitles:move(time_beg, time_end)
+    if not self.loaded then
+        return false, "", 0
+    end 
+
+    time_end = time_end or time_beg   
+
+    if self.begin_time and self.end_time and time_beg >= self.begin_time and time_end <= self.end_time then
+        return false, self:get_current(), self.end_time-time_beg
     end
     
-    self:_fill_currents(time)
+    self:_fill_currents(time_beg, time_end)
 
-    --g_subtitles:log(time)
-
-    return true, self:get_current(), self.end_time and self.end_time-time or 0
+    return true, self:get_current(), self.end_time and self.end_time-time_beg
 end
 
-function g_subtitles:log(cur_time)
-        log("________________________________________________")
-        log("prev\tbegin\tcurr\tend\tnext")
-        log(tostring(self.prev_time or "----").."\t"..tostring(self.begin_time or "----").."\t"..
-                tostring(cur_time or "----").."\t"..tostring(self.end_time or "----")..
-                "\t"..tostring(self.next_time or "----"))
-        log("nesting: " .. #self.currents)
-        log("titre:" .. (g_subtitles:get_current() or "nil"))
-        log("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+function tos( val )
+    return tostring(val or "nil")
 end
 
 -- private
-function g_subtitles:_fill_currents(time)
-    self.currents = {} -- there might be several current overlapping subtitles
-    self.prev_time = nil
-    self.begin_time = nil
-    self.end_time = nil
-    self.next_time = nil
-
-    local last_checked = 0
-    for i = 1, #self.subtitles do
-        last_checked = i
-        if self.subtitles[i][1] <= time and time <= self.subtitles[i][2] then
-            self.prev_time = self.subtitles[i-1] and self.subtitles[i-1][1]
-            self.begin_time = self.subtitles[i][1]
-            self.end_time = math.min(self.subtitles[i+1] and self.subtitles[i+1][1] or 9999999, self.subtitles[i][2])
-            table.insert(self.currents, i)
+function Subtitles:_fill_currents(time_beg, time_end)
+    -- there might be several current overlapping subtitles
+    self.currents = {}
+    
+    -- temporary currents to prevent data duplication when 
+    -- this function is called in different threads
+    local currents = {} 
+    
+    local first = 1
+    
+    while first < #self.subtitles and time_beg > self.subtitles[first][2] do
+        first = first + 1
+    end
+    
+    local last = first
+       
+    while last < #self.subtitles and time_end > self.subtitles[last][1] do
+        table.insert(currents, last)
+        last = last + 1   
+    end 
+    
+    self.currents = currents
+    
+    self.prev_time = self.subtitles[first - 1][1]
+    self.next_time = self.subtitles[last][1]
+    
+    if first ~= last then        
+        self.begin_time = math.min( self.subtitles[first][1], time_beg )
+        self.end_time = math.max( self.subtitles[last - 1][2], time_end )
+    else
+        self.begin_time = self.subtitles[first - 1][2]
+        self.end_time = self.subtitles[last][1]
+    end
+      
+    local function dbgprint()  
+        log("________________________________________________")
+        log("request\t["..tos(time_beg)..","..tos(time_end)..")")
+        log(tos(self.prev_time).."\t["..tos(self.begin_time)..","..tos(self.end_time).."]\t"..tos(self.next_time))
+        for _, cur in ipairs(self.currents) do
+            log("   ["..tos(self.subtitles[cur][1])..","..tos(self.subtitles[cur][2]).."]: "..tos(self.subtitles[cur][3]))
         end
-        if self.subtitles[i][1] > time then
-            self.next_time = self.subtitles[i][1]
-            break
-        end
+        log("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
     end
 
-    -- if there are no current subtitles
-    if #self.currents == 0 then
-        self.prev_time = self.subtitles[last_checked-1] and self.subtitles[last_checked-1][1]
-        self.begin_time = self.subtitles[last_checked-1] and self.subtitles[last_checked-1][2] or 0
-        if last_checked < #self.subtitles then
-            self.end_time = self.subtitles[last_checked] and self.subtitles[last_checked][1]
-        else
-            self.end_time = nil -- no end time after the last subtitle
-        end
-        self.next_time = self.end_time
-    end
-end
+    --dbgprint()
+ end
 
 function add_intf_callback()
     if vlc.object.input() then
@@ -478,6 +527,10 @@ function change_callbacks()
     end
 end
 
+function get_vlc_time(input)
+  return vlc.var.get(input, "time") - sia_settings.subs_time_shift
+end
+
 function input_events_handler(var, old, new, data)
 
     -- listen to input events only to show subtitles
@@ -485,17 +538,29 @@ function input_events_handler(var, old, new, data)
 
     -- get current time
     local input = vlc.object.input()
-    local current_time = vlc.var.get(input, "time")
+    local current_time = get_vlc_time(input)
 
     -- if the video was paused by 'again!' button (backspace by default)
     --  then restore initial g_osd_enabled state
     if g_paused_by_btn_again and vlc.playlist.status() ~= "paused" then
-        g_paused_by_btn_again = false
+        g_paused_by_btn_again = false 
         g_osd_enabled = sia_settings.always_show_subtitles
+        
+        if not sia_settings.always_show_subtitles then
+            g_second_lang_enabled = false
+        end    
     end
 
     local _, subtitle, duration = g_subtitles:move(current_time)
-
+    
+    if g_second_lang_enabled and subtitle and subtitle then     
+        local _, subtitle_n, duration_n = g_subtitles_native:move(g_subtitles.begin_time, g_subtitles.end_time)
+        
+        if subtitle_n and duration_n then
+            subtitle = subtitle .. "\n\n" .. subtitle_n
+        end
+    end
+    
     osd_show(subtitle, duration)
 end
 
@@ -509,6 +574,10 @@ function key_pressed_handler(var, old, new, data)
         subtitle_again()
     elseif new == sia_settings.key_save then
         subtitle_save()
+    elseif new == sia_settings.key_enable_second_lang then
+        enable_second_lang()
+    elseif new == sia_settings.key_always_show_subs then
+        always_show_subs()
     end
 end
 
@@ -516,7 +585,7 @@ function goto_prev_subtitle()
     local input = vlc.object.input()
     if not input then return end
 
-    local curr_time = vlc.var.get(input, "time")
+    local curr_time = get_vlc_time(input)
 
     g_subtitles:move(curr_time)
 
@@ -527,7 +596,7 @@ function goto_next_subtitle()
     local input = vlc.object.input()
     if not input then return end
 
-    local curr_time = vlc.var.get(input, "time")
+    local curr_time = get_vlc_time(input)
 
     g_subtitles:move(curr_time)
 
@@ -538,7 +607,7 @@ function subtitle_again()
     local input = vlc.object.input()
     if not input then return end
 
-    local current_time = vlc.var.get(input, "time")
+    local current_time = get_vlc_time(input)
 
     playback_pause()
     g_paused_by_btn_again = true
@@ -549,11 +618,22 @@ function subtitle_again()
     playback_goto(input, g_subtitles:get_prev_time(current_time))
 end
 
+function enable_second_lang()
+    if g_subtitles_native.loaded then
+        g_second_lang_enabled = not g_second_lang_enabled;
+    end
+end
+
+function always_show_subs()
+    sia_settings.always_show_subtitles = not sia_settings.always_show_subtitles;
+    g_osd_enabled = sia_settings.always_show_subtitles;
+end
+
 function subtitle_save()
     local input = vlc.object.input()
     if not input then return end
 
-    g_subtitles:move(vlc.var.get(input, "time"))
+    g_subtitles:move(get_vlc_time(input))
 
     local curr_subtitle = g_subtitles:get_current()
     if curr_subtitle then
@@ -576,7 +656,7 @@ function gui_show_osd_help()
     vlc.osd.message("!!! Press [v] to disable subtitles !!!", vlc.osd.channel_register(), "top", duration/2)
     vlc.osd.message("[y] - previous\n       phrase", vlc.osd.channel_register(), "left", duration)
     vlc.osd.message("[u] - next    \nphrase", vlc.osd.channel_register(), "right", duration)
-    vlc.osd.message("[i] - save\n\n[backspace] - again!", vlc.osd.channel_register(), "center", duration)
+    vlc.osd.message("[i] - save\n\n[backspace] - again!\n\n[ctrl+backspace] - second language\n\n[r] - always show subtitles", vlc.osd.channel_register(), "center", duration)
 end
 
 function gui_def2str(list)
@@ -672,27 +752,64 @@ function gui_update_list_dicts()
 end
 
 function gui_create_dialog_save_word()
-    g_dlg.w.lbl_context = g_dlg.dlg:add_label("<b>1. Edit<br />context:</b>",1,1,1,3)
-    g_dlg.w.lbl_prev_s = g_dlg.dlg:add_label("",2,1,8,1)
-    g_dlg.w.btn_add_prev =g_dlg.dlg:add_button("+", function() g_dlg.w.tb_curr_s:set_text(g_subtitles:get_previous() .. " " .. g_dlg.w.tb_curr_s:get_text()) end, 10,1,1,1)
-    g_dlg.w.tb_curr_s = g_dlg.dlg:add_text_input("",2,2,9,1)
-    g_dlg.w.lbl_next_s = g_dlg.dlg:add_label("",2,3,8,1)
-    g_dlg.w.btn_add_next =g_dlg.dlg:add_button("+", function() g_dlg.w.tb_curr_s:set_text(g_dlg.w.tb_curr_s:get_text() .. " " .. g_subtitles:get_next()) end, 10,3,1,1)
+    g_dlg.w.lbl_context = g_dlg.dlg:add_label("<b>1. Edit<br />context:</b>",1,1,1,4)
+    g_dlg.w.lbl_prev_s = g_dlg.dlg:add_label("",3,1,12,1)
+    g_dlg.w.btn_add_prev =g_dlg.dlg:add_button("|<--", gui_add_prev_sub, 2,1,1,1)
+    g_dlg.w.tb_curr_s = g_dlg.dlg:add_text_input("",2,2,13,1)
+    g_dlg.w.tb_curr_s2 = g_dlg.dlg:add_text_input("",2,3,13,1)
+    g_dlg.w.lbl_next_s = g_dlg.dlg:add_label("",3,4,12,1)
+    g_dlg.w.btn_add_next =g_dlg.dlg:add_button("-->|", gui_add_next_sub, 2,4,1,1)
 
-    g_dlg.w.lbl_add_word = g_dlg.dlg:add_label("<br /><b>2. Choose a word to look it up:</b>",1,4,10,1)
+    g_dlg.w.lbl_add_word = g_dlg.dlg:add_label("<b>2. Choose a word to look it up:</b>",1,5,10,1)
     -- (words buttons here)
-    g_dlg.w.lbl_or_enter = g_dlg.dlg:add_label("or enter:",1,9,1,1)
-    g_dlg.w.tb_word = g_dlg.dlg:add_text_input("",2,9,8,1)
-    g_dlg.w.btn_lookup =g_dlg.dlg:add_button("look up", gui_lookup_word, 10, 9, 1, 1)
-    g_dlg.w.lbl_choose_def = g_dlg.dlg:add_label("<b>3. Choose appropriate definition(s):</b>",1,10,10,1)
-    g_dlg.w.list_def = g_dlg.dlg:add_list(1, 11, 10, 10)
+    g_dlg.w.lbl_or_enter = g_dlg.dlg:add_label("or enter:",1,10,1,1)
+    g_dlg.w.tb_word = g_dlg.dlg:add_text_input("",2,10,8,1)
+    g_dlg.w.btn_lookup =g_dlg.dlg:add_button("look up", gui_lookup_word, 10, 10, 1, 1)
+    g_dlg.w.lbl_choose_def = g_dlg.dlg:add_label("<b>3. Choose appropriate definition(s):</b>",1,11,10,1)
+    g_dlg.w.list_def = g_dlg.dlg:add_list(1, 12, 10, 10)
 
-    g_dlg.w.btn_get_tr = g_dlg.dlg:add_button("edit def", function() g_dlg.w.tb_def:set_text(gui_def2str(g_dlg.w.list_def:get_selection())) end, 1, 21, 1, 1)
-    g_dlg.w.tb_def = g_dlg.dlg:add_text_input("",2,21,8,1)
-    g_dlg.w.btn_save = g_dlg.dlg:add_button("SAVE >>>", gui_save_word, 10, 21, 1, 1)
+    g_dlg.w.btn_get_tr = g_dlg.dlg:add_button("edit def", function() g_dlg.w.tb_def:set_text(gui_def2str(g_dlg.w.list_def:get_selection())) end, 1, 22, 1, 1)
+    g_dlg.w.tb_def = g_dlg.dlg:add_text_input("",2,22,8,1)
+    g_dlg.w.btn_save = g_dlg.dlg:add_button("SAVE >>>", gui_save_word, 10, 22, 1, 1)
 
-    g_dlg.w.lbl_file = g_dlg.dlg:add_label("File '" .. (sia_settings.words_file_path or "n/a") .. "':",11,1,4,1)
-    g_dlg.w.list_file = g_dlg.dlg:add_list(11, 2, 4, 18)
+    g_dlg.w.lbl_file = g_dlg.dlg:add_label("File '" .. (sia_settings.words_file_path or "n/a") .. "':",11,5,4,1)
+    g_dlg.w.list_file = g_dlg.dlg:add_list(11, 6, 4, 18)
+end
+
+function gui_add_prev_sub()
+  g_dlg.w.tb_curr_s:set_text(g_subtitles:get_by_delta(g_dlg.prev_sub_diff) .. " " .. g_dlg.w.tb_curr_s:get_text())
+  
+  if g_second_lang_enabled then
+     g_dlg.w.tb_curr_s2:set_text(g_subtitles_native:get_by_delta(g_dlg.prev_sub_diff) .. " " .. g_dlg.w.tb_curr_s2:get_text())
+  end
+  
+  g_dlg.prev_sub_diff = g_dlg.prev_sub_diff - 1
+  
+  local nextsub = g_subtitles:get_by_delta(g_dlg.prev_sub_diff)
+  
+  if g_second_lang_enabled then
+     nextsub = nextsub .. " / " .. g_subtitles_native:get_by_delta(g_dlg.prev_sub_diff)
+  end
+  
+  g_dlg.w.lbl_prev_s:set_text("<font color='grey'>" .. nextsub .. "</font>")
+end
+
+function gui_add_next_sub()
+  g_dlg.w.tb_curr_s:set_text(g_dlg.w.tb_curr_s:get_text() .. " " .. g_subtitles:get_by_delta(g_dlg.next_sub_diff))
+  
+  if g_second_lang_enabled then
+     g_dlg.w.tb_curr_s2:set_text(g_dlg.w.tb_curr_s2:get_text() .. " " .. g_subtitles_native:get_by_delta(g_dlg.next_sub_diff))
+  end
+  
+  g_dlg.next_sub_diff = g_dlg.next_sub_diff + 1
+  
+  local nextsub = g_subtitles:get_by_delta(g_dlg.next_sub_diff)
+  
+  if g_second_lang_enabled then
+     nextsub = nextsub .. " / " .. g_subtitles_native:get_by_delta(g_dlg.next_sub_diff)
+  end
+  
+  g_dlg.w.lbl_next_s:set_text("<font color='grey'>" .. nextsub .. "</font>")
 end
 
 function gui_show_dialog_save_word(curr_subtitle)
@@ -712,11 +829,21 @@ function gui_show_dialog_save_word(curr_subtitle)
         gui_del_words_buttons()
     end
 
-    g_dlg.w.lbl_prev_s:set_text("<font color='grey'>" .. g_subtitles:get_previous() .. "</font>")
+    g_dlg.prev_sub_diff = 0
+    g_dlg.next_sub_diff = 0
+    
+    gui_add_prev_sub()
+    gui_add_next_sub()
     g_dlg.w.tb_curr_s:set_text(curr_subtitle)
-    g_dlg.w.lbl_next_s:set_text("<font color='grey'>" .. g_subtitles:get_next() .. "</font>")
+    g_dlg.w.tb_curr_s2:set_text( "" )
+    
+    local _, subtitle_n, _ = g_subtitles_native:move(g_subtitles.begin_time, g_subtitles.end_time)
+  
+    if g_second_lang_enabled and subtitle_n then
+        g_dlg.w.tb_curr_s2:set_text( subtitle_n )
+    end
 
-    g_dlg.btns = gui_get_words_buttons(curr_subtitle, 5)
+    g_dlg.btns = gui_get_words_buttons(curr_subtitle, 6)
     
     g_dlg.w.list_def:clear()
     g_dlg.w.list_file:clear()
@@ -784,11 +911,11 @@ function gui_save_word()
 
     local transcription = g_dlg.tr and ("["..g_dlg.tr.."]") or ""
 
-    
     local context = string.gsub(g_dlg.w.tb_curr_s:get_text(), "\n", " ") or ""
+    local context_n = string.gsub(g_dlg.w.tb_curr_s2:get_text(), "\n", " ") or ""
     local tags = get_title() or ""
 
-    local res = word .. "\t" .. transcription .. "\t" .. def .. "\t" .. context .. "\t\t" .. tags
+    local res = context .. "\t" .. context_n .. "\t" .. word .. "\t" .. transcription .. "\t" .. def
     
     g_dlg.w.tb_def:set_text("") -- clear custom definition
 
@@ -889,14 +1016,22 @@ function is_unix_platform()
     end
 end
 
-function get_subtitles_path()
+function get_subtitles_path_impl(ext)
     local item = get_input_item()
     if not item then return "" end
 
     local path_to_video = uri_to_path(vlc.strings.decode_uri(item:uri()), is_unix_platform())
     log(path_to_video)
 
-    return path_to_video:gsub("[^.]*$", "") .. "srt"
+    return path_to_video:gsub("\.[^.]*$", ext)
+end
+
+function get_subtitles_path()
+    return get_subtitles_path_impl( ".srt" )
+end
+
+function get_subtitles_native_path()
+    return get_subtitles_path_impl( "_2.srt" )
 end
 
 function filter_html(str)
@@ -917,7 +1052,7 @@ end
 
 function playback_goto(input, time)
     if input and time then
-        vlc.var.set(input, "time", time)
+        vlc.var.set(input, "time", time + sia_settings.subs_time_shift)
     end
 end
 
